@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "threads/vaddr.h"
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -31,6 +32,44 @@ page_get_type (struct page *page) {
 			return ty;
 	}
 }
+/* hash_bytes()를 사용해 가상 주소(va)를 기준으로 해시 키를 생성
+ * hash_init() 함수는 각 요소를 해시 테이블에 넣을 때 고유한 키(hash value)를 요구
+ * SPT는 가상 주소(void *va)를 기준으로 페이지를 식별 -> struct page의 va를 기준으로 해싱
+ * 해시 테이블이 struct page들을 적절하게 분류(버킷 분배) */
+unsigned
+page_hash(const struct hash_elem *e, void *aux UNUSED) {
+    struct page *p = hash_entry(e, struct page, hash_elem);
+    return hash_bytes(&p->va, sizeof p->va);
+}
+
+/* 두 struct page 객체를 가상 주소(va) 기준으로 작은지 비교
+ * 해시 테이블은 내부적으로 충돌을 해결할 때 정렬된 순서를 필요로 하며, 중복 여부 판단에도 비교 함수가 필요
+ * 즉, 해시 키가 같더라도 va가 다르면 다른 페이지로 인식해야 함
+ * 정렬된 탐색 또는 hash_find()에서 사용되는 비교 기준이 필요 */ 
+bool
+page_less(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
+    struct page *p_a = hash_entry(a, struct page, hash_elem);
+    struct page *p_b = hash_entry(b, struct page, hash_elem);
+    return p_a->va < p_b->va;
+}
+
+/* 주어진 페이지 p를 해시 테이블 pages에 삽입
+ * 삽입 성공 시 true, 이미 동일한 키가 존재해서 삽입 실패 시 false를 반환 */
+bool insert_page(struct hash *pages, struct page *p){
+    if(!hash_insert(pages, &p->hash_elem))
+        return true;
+    else
+        return false;
+}
+
+/* 주어진 페이지 p를 해시 테이블 pages에 삭제 
+ * 삭제 성공 시 true, 해당 항목이 이미 삭제 되어 있을 시 false를 반환 */
+bool delete_page(struct hash *pages, struct page *p){
+    if(!hash_delete(pages, &p->hash_elem))
+        return true;
+    else
+        return false;
+}
 
 /* 헬퍼 함수들 */
 static struct frame *vm_get_victim (void);
@@ -52,7 +91,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: 페이지를 생성하고, VM 타입에 따라 initializer를 가져옵니다.
 		 * TODO: 그런 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성합니다.
 		 * TODO: uninit_new 호출 후 필요한 필드를 수정하세요. */
-
+		
 		/* TODO: 생성한 페이지를 spt에 삽입합니다. */
 	}
 err:
@@ -65,7 +104,10 @@ struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: 이 함수를 구현하세요. */
-
+	struct page* page = (struct page*)malloc(sizeof(struct page)); // dummy page 생성
+	struct hash_elem *e;
+	page->va=pg_round_down(va);
+	e = hash_find(&spt->pages, &page->hash_elem);
 	return page;
 }
 
@@ -73,10 +115,8 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 bool
 spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
-	int succ = false;
 	/* TODO: 이 함수를 구현하세요. */
-
-	return succ;
+	return insert_page(&spt->pages, page);
 }
 
 /* 페이지를 spt에서 제거하고 메모리를 해제합니다. */
@@ -174,6 +214,7 @@ vm_do_claim_page (struct page *page) {
 /* 새로운 보조 페이지 테이블을 초기화합니다. */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	hash_init(&spt->pages, page_hash, page_less, NULL);
 }
 
 /* 보조 페이지 테이블을 src로부터 dst로 복사합니다. */
