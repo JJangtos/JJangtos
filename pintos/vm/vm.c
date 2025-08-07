@@ -4,6 +4,11 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "threads/vaddr.h"
+#include "threads/mmu.h"
+
+/* Project 3 */
+struct list frame_table;
+struct list_elem* start;
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -56,7 +61,7 @@ page_less(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED
 /* 주어진 페이지 p를 해시 테이블 pages에 삽입
  * 삽입 성공 시 true, 이미 동일한 키가 존재해서 삽입 실패 시 false를 반환 */
 bool insert_page(struct hash *pages, struct page *p){
-    if(!hash_insert(pages, &p->hash_elem))
+    if(!hash_insert(pages, &p->hash_elem)) 
         return true;
     else
         return false;
@@ -70,6 +75,26 @@ bool delete_page(struct hash *pages, struct page *p){
     else
         return false;
 }
+
+bool
+install_page (void *upage, void *kpage, bool writable) {
+    struct thread *curr = thread_current ();
+
+    // upage는 유저 주소 공간이어야 하며, 페이지 단위로 정렬돼야 함
+    ASSERT (pg_ofs (upage) == 0);
+    ASSERT (is_user_vaddr (upage));
+    ASSERT (kpage != NULL);
+
+    // 이미 매핑된 페이지인지 확인
+    if (pml4_get_page (curr->pml4, upage) == NULL) {
+        // 매핑 시도: 성공하면 true, 실패하면 false
+        return pml4_set_page (curr->pml4, upage, kpage, writable);
+    }
+
+    // 이미 매핑돼 있으면 실패
+    return false;
+}
+
 
 /* 헬퍼 함수들 */
 static struct frame *vm_get_victim (void);
@@ -102,14 +127,13 @@ err:
  * 실패 시 NULL을 반환합니다. */
 struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
 	/* TODO: 이 함수를 구현하세요. */
 	struct page* page = (struct page*)malloc(sizeof(struct page)); // dummy page 생성
 	struct hash_elem *e; // va가 가르키는 가상의 page의 시작 포인트 (offset이 0으로 설정된 va) 반환
-	page->va=pg_round_down(va); 
-	e = hash_find(&spt->pages, &page->hash_elem); // hash에서 hash_elem과 같은 요소를 검색해서 발견하면 발견한 element 반환, 아니면 NULL 반환
-	free(page);
-	return e !=NULL ? hash_entry(e,struct page, hash_elem) : NULL;
+	page->va=pg_round_down(va); //페이지 정렬: va를 페이지 단위로 내림(round down)하여, 페이지의 시작 주소로 설정. 이는 spt에 저장된 키(va)와 정확히 일치시키기 위함
+	e = hash_find(&spt->pages, &page->hash_elem); // page->va를 기준으로 hash_elem을 조회, 내부적으로 page_hash와 page_less를 이용하여 비교
+	free(page); // 더미 page는 더 이상 필요 없으므로 해제
+	return e !=NULL ? hash_entry(e,struct page, hash_elem) : NULL; // e가 NULL이 아니면, e가 가리키는 struct page 구조체를 반환, hash_entry는 hash_elem 포인터를 실제 struct page 포인터로 변환
 }
 
 /* PAGE를 spt에 삽입합니다. 삽입 시 유효성 검사를 수행합니다. */
@@ -132,7 +156,25 @@ static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
 	/* TODO: 희생 페이지 선택 정책은 여러분이 정하세요. */
+	struct thread *curr = thread_current();
+	struct list_elem *e = start;
 
+	for (start = e; start != list_end(&frame_table); start = list_next(start))
+	{
+		victim = list_entry(start, struct frame, frame_elem);
+		if (pml4_is_accessed(curr->pml4, victim->page->va))
+			pml4_set_accessed(curr->pml4, victim->page->va, 0);
+		else
+			return victim;
+	}
+	for (start = list_begin(&frame_table); start != e; start = list_next(start))
+	{
+		victim = list_entry(start, struct frame, frame_elem);
+		if (pml4_is_accessed(curr->pml4, victim->page->va))
+			pml4_set_accessed(curr->pml4, victim->page->va, 0);
+		else
+			return victim;
+	}
 	return victim;
 }
 
@@ -142,8 +184,8 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: victim을 swap out 하고 해당 프레임을 반환합니다. */
-
-	return NULL;
+	swap_out(victim->page);
+	return victim;
 }
 
 /* palloc()을 사용하여 프레임을 얻습니다.
@@ -151,8 +193,20 @@ vm_evict_frame (void) {
  * 항상 유효한 주소를 반환해야 합니다. */
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = NULL;
 	/* TODO: 이 함수를 구현하세요. */
+	struct frame *frame = (struct frame*)malloc(sizeof(struct frame));
+	frame->kva=palloc_get_page(PAL_USER);
+
+	if(frame->kva == NULL)
+	{
+		frame = vm_evict_frame();
+		frame->page=NULL;
+		return frame;
+	}
+
+	list_push_back(&frame_table, &frame->frame_elem);
+
+	frame -> page = NULL;
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -194,8 +248,13 @@ bool
 vm_claim_page (void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: 이 함수를 구현하세요. */
+    page = spt_find_page(&thread_current()->spt,va);
 
-	return vm_do_claim_page (page);
+    if(page == NULL){
+        return false;
+    }
+
+    return vm_do_claim_page (page);
 }
 
 /* 주어진 PAGE를 할당하고 MMU를 설정합니다. */
@@ -208,11 +267,13 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: 페이지 테이블 엔트리를 추가하여 페이지의 VA와 프레임의 PA를 매핑합니다. */
-
-	return swap_in (page, frame->kva);
+	if(install_page(page->va, frame->kva, page->writable))
+	{
+        return swap_in(page, frame->kva);
+    }
+    return false;
 }
 
-/* 새로운 보조 페이지 테이블을 초기화합니다. */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	hash_init(&spt->pages, page_hash, page_less, NULL);
