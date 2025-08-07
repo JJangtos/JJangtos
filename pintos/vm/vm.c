@@ -105,10 +105,11 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: 이 함수를 구현하세요. */
 	struct page* page = (struct page*)malloc(sizeof(struct page)); // dummy page 생성
-	struct hash_elem *e;
-	page->va=pg_round_down(va);
-	e = hash_find(&spt->pages, &page->hash_elem);
-	return page;
+	struct hash_elem *e; // va가 가르키는 가상의 page의 시작 포인트 (offset이 0으로 설정된 va) 반환
+	page->va=pg_round_down(va); 
+	e = hash_find(&spt->pages, &page->hash_elem); // hash에서 hash_elem과 같은 요소를 검색해서 발견하면 발견한 element 반환, 아니면 NULL 반환
+	free(page);
+	return e !=NULL ? hash_entry(e,struct page, hash_elem) : NULL;
 }
 
 /* PAGE를 spt에 삽입합니다. 삽입 시 유효성 검사를 수행합니다. */
