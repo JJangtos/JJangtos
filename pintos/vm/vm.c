@@ -3,7 +3,7 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
-#include "threads/vaddr.h"
+#include "vaddr.h"
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -53,24 +53,6 @@ page_less(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED
     return p_a->va < p_b->va;
 }
 
-/* 주어진 페이지 p를 해시 테이블 pages에 삽입
- * 삽입 성공 시 true, 이미 동일한 키가 존재해서 삽입 실패 시 false를 반환 */
-bool insert_page(struct hash *pages, struct page *p){
-    if(!hash_insert(pages, &p->hash_elem))
-        return true;
-    else
-        return false;
-}
-
-/* 주어진 페이지 p를 해시 테이블 pages에 삭제 
- * 삭제 성공 시 true, 해당 항목이 이미 삭제 되어 있을 시 false를 반환 */
-bool delete_page(struct hash *pages, struct page *p){
-    if(!hash_delete(pages, &p->hash_elem))
-        return true;
-    else
-        return false;
-}
-
 /* 헬퍼 함수들 */
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
@@ -104,20 +86,31 @@ struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: 이 함수를 구현하세요. */
-	struct page* page = (struct page*)malloc(sizeof(struct page)); // dummy page 생성
-	struct hash_elem *e; // va가 가르키는 가상의 page의 시작 포인트 (offset이 0으로 설정된 va) 반환
-	page->va=pg_round_down(va); 
-	e = hash_find(&spt->pages, &page->hash_elem); // hash에서 hash_elem과 같은 요소를 검색해서 발견하면 발견한 element 반환, 아니면 NULL 반환
-	free(page);
-	return e !=NULL ? hash_entry(e,struct page, hash_elem) : NULL;
+	struct page p; // 검색을 위한 임시 페이지 선언
+	struct hash_elem *e; // 해쉬 테이블로 찾기 위해, hash_find의 검색 결과를 담는 포인터 선언
+
+	p.va = pg_round_down(va); // 임시 페이지의 va값을 페이지 시작 주소로, 검색 key값이 될 페이지의 시작 주소임
+	e = hash_find(&spt->pages, &p.hash_elem); // hash_find 함수를 통해 spt에서 일치하는 요소 찾기
+
+	if (e != NULL){ // 검색에 성공하면
+		page = hash_entry(e, struct page, hash_elem); // 페이지에 struct page의 주소를 삽입
+	}
+
+	return page; // 페이지 반환, 실패하면 87라인의 NULL 반환(if문 안 들어감)
 }
 
-/* PAGE를 spt에 삽입합니다. 삽입 시 유효성 검사를 수행합니다. */
+/* PAGE를 spt에 삽입합니다. 삽입 시 유효성 검사를 수행합니다. 
+이 함수는 인자로 주어진 보조 페이지 테이블에 페이지 구조체를 삽입합니다. 
+이 함수에서 주어진 보충 테이블에서 가상 주소가 존재하지 않는지 검사해야 합니다. */
 bool
 spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
 	/* TODO: 이 함수를 구현하세요. */
 	return insert_page(&spt->pages, page);
+}
+
+bool insert_page(struct hash *pages, struct page *p){
+	return hash_insert(pages, &p->hash_elem) == NULL;
 }
 
 /* 페이지를 spt에서 제거하고 메모리를 해제합니다. */

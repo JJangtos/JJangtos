@@ -2,6 +2,8 @@
     "files.associations": {
         "vm.h": "c",
         "hash.h": "c",
-        "malloc.h": "c"
+        "malloc.h": "c",
+        "vaddr.h": "c",
+        "stddef.h": "c"
     }
 }
