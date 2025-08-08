@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "atomic": "c",
+        "*.inc": "c",
+        "system_error": "c",
+        "flags.h": "c",
+        "vm.h": "c",
+        "hash.h": "c",
+        "inspect.h": "c",
+        "thread.h": "c"
+    }
+}

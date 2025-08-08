@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "hash.h"
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -17,6 +18,27 @@ vm_init (void) {
 	/* 위의 줄은 수정하지 마시오. */
 	/* TODO: 여기에 코드를 작성하세요. */
 }
+
+// [구현1-1.해시테이블세팅] 해시 테이블 요소 추가
+// 페이지 p에 대한 해시 값을 반환한다.
+unsigned
+page_hash(const struct hash_elem *p_, void *aux UNUSED){
+	// struct page의 시작 주소를 알아내서
+	const struct page *p = hash_entry (p_, struct page, hash_elem);
+	// p->va는 가상 주소 즉 키 역할, 키를 바탕으로 해시값을 계산해서 반환한다.
+	return hash_bytes (&p->va, sizeof p->va);
+}
+
+// [구현1-1.해시테이블세팅] 해시 테이블 요소 추가
+// 페이지 a가 페이지 b보다 앞서면 true를 반환한다.
+// 목적 : 해시 충돌이 발생했을 때 같은 해시값을 갖는 요소들끼리 정렬된 순서로 저장하기 위함
+bool
+page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED){
+	const struct page *a = hash_entry (a_, struct page, hash_elem);
+	const struct page *b = hash_entry (b_, struct page, hash_elem);
+	return a->va > b->va;
+}
+
 
 /* 페이지의 타입을 반환합니다.
  * 페이지가 초기화된 이후 어떤 타입인지 확인할 때 유용합니다.
@@ -59,22 +81,31 @@ err:
 	return false;
 }
 
+// [구현 1-2] 보조페이지테이블 구현
 /* spt에서 VA에 해당하는 페이지를 찾아 반환합니다.
  * 실패 시 NULL을 반환합니다. */
 struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
+spt_find_page (struct supplemental_page_table *spt, void *va) {
+	// struct page *page = NULL;
 	/* TODO: 이 함수를 구현하세요. */
+	// 구조체 page 임시 객체, 이건 검색용도
+	struct page p;
+	struct hash_elem *e; 		// hash_find의 검색결과 저장용
+	// 찾고자 하는 가상 주소를 p의 va필드에 넣음. 이 va가 해시의 key 역할
+	p.va = va;
+	e = hash_find(&spt -> pages, &p.hash_elem);
 
-	return page;
+	// hash_find 반환값이 null이 아니면 page 꺼내서 반환
+	return e != NULL ? hash_entry (e, struct page, hash_elem) : NULL;
 }
 
+// [구현 1-2] 보조페이지테이블 구현
 /* PAGE를 spt에 삽입합니다. 삽입 시 유효성 검사를 수행합니다. */
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
+spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 	int succ = false;
 	/* TODO: 이 함수를 구현하세요. */
+	succ = hash_insert(&spt->pages, &page -> hash_elem);
 
 	return succ;
 }
@@ -171,15 +202,18 @@ vm_do_claim_page (struct page *page) {
 	return swap_in (page, frame->kva);
 }
 
+// [구현 1-2] 보조페이지테이블 구현
 /* 새로운 보조 페이지 테이블을 초기화합니다. */
 void
-supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+supplemental_page_table_init (struct supplemental_page_table *spt) {
+	hash_init(&spt->pages, page_hash, page_less, NULL);
 }
 
 /* 보조 페이지 테이블을 src로부터 dst로 복사합니다. */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
+	
 }
 
 /* 보조 페이지 테이블이 사용하는 자원을 해제합니다. */
