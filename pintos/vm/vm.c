@@ -38,8 +38,9 @@ page_get_type (struct page *page) {
  * 해시 테이블이 struct page들을 적절하게 분류(버킷 분배) */
 unsigned
 page_hash(const struct hash_elem *e, void *aux UNUSED) {
-    struct page *p = hash_entry(e, struct page, hash_elem);
-    return hash_bytes(&p->va, sizeof p->va);
+    struct page *p = hash_entry(e, struct page, hash_elem); // hash_entry는 page 구조체의 hash_elem의 포인터(e)를 이용해
+															// struct page 구조체의 포인터를 계산함.
+    return hash_bytes(&p->va, sizeof p->va); // 키(key)값으로 va를 사용, 그 va를 해시 테이블로 사용할 수 있도록 해시 값을 생성
 }
 
 /* 두 struct page 객체를 가상 주소(va) 기준으로 작은지 비교
@@ -50,7 +51,7 @@ bool
 page_less(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
     struct page *p_a = hash_entry(a, struct page, hash_elem);
     struct page *p_b = hash_entry(b, struct page, hash_elem);
-    return p_a->va < p_b->va;
+    return p_a->va < p_b->va; 
 }
 
 /* 헬퍼 함수들 */
@@ -141,11 +142,30 @@ vm_evict_frame (void) {
 
 /* palloc()을 사용하여 프레임을 얻습니다.
  * 사용 가능한 페이지가 없다면, 프레임을 eviction 하여 메모리를 확보합니다.
- * 항상 유효한 주소를 반환해야 합니다. */
+ * 항상 유효한 주소를 반환해야 합니다. 
+ * 
+ * 이 함수는 palloc_get_page 함수를 호출함으로써 당신의 메모리 풀에서 새로운 물리메모리 페이지를 가져옵니다. 
+ * 유저 메모리 풀에서 페이지를 성공적으로 가져오면, 프레임을 할당하고 프레임 구조체의 멤버들을 초기화한 후 해당 프레임을 반환합니다. 
+ * 당신이 frame *vm_get_frame  함수를 구현한 후에는 모든 유저 공간 페이지들을 이 함수를 통해 할당해야 합니다.
+ * 지금으로서는 페이지 할당이 실패했을 경우의 swap out을 할 필요가 없습니다. 
+ * 일단 지금은 PANIC ("todo")으로 해당 케이스들을 표시해 두십시오.
+*/
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: 이 함수를 구현하세요. */
+	void *kva = palloc_get_page(PAL_USER); // 유저 메모리에서 물리메모리 페이지를 가져옴
+	if(kva == NULL){ // 물리메모리 페이지를 가져오는 데 실패했을 경우
+		PANIC("kva is NULL");
+	}
+	frame = (struct frame *)malloc(sizeof(struct frame));
+	if(frame == NULL){
+		palloc_free_page(kva);
+		PANIC("frame is NULL");
+	}
+
+	frame->kva = kva; // 프레임 할당
+	frame->page = NULL; // 프레임 구조체의 멤버들을 초기화
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -191,7 +211,11 @@ vm_claim_page (void *va UNUSED) {
 	return vm_do_claim_page (page);
 }
 
-/* 주어진 PAGE를 할당하고 MMU를 설정합니다. */
+/* 주어진 PAGE를 할당하고 MMU를 설정합니다. 
+이 함수는 인자로 주어진 page에 물리 메모리 프레임을 할당합니다. 
+당신은 먼저 vm_get_frame 함수를 호출함으로써 프레임 하나를 얻습니다(이 부분은 스켈레톤 코드에 구현되어 있습니다). 
+그 이후 당신은 MMU를 세팅해야 하는데, 이는 가상 주소와 물리 주소를 매핑한 정보를 페이지 테이블에 추가해야 한다는 것을 의미합니다.
+이 함수는 앞에서 말한 연산이 성공적으로 수행되었을 경우에 true를 반환하고 그렇지 않을 경우에 false를 반환합니다.*/
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
@@ -201,6 +225,7 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: 페이지 테이블 엔트리를 추가하여 페이지의 VA와 프레임의 PA를 매핑합니다. */
+
 
 	return swap_in (page, frame->kva);
 }
