@@ -732,6 +732,21 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: 파일로부터 세그먼트를 로드합니다. */
 	/* TODO: 이 함수는 VA 주소에서 첫 번째 페이지 폴트가 발생했을 때 호출됩니다. */
 	/* TODO: 이 함수를 호출할 때 VA는 이미 유효합니다. */
+	struct file *file = ((struct container *)aux)->file;
+    off_t offsetof = ((struct container *)aux)->offset;
+    size_t page_read_bytes = ((struct container *)aux)->page_read_bytes;
+    size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+    file_seek(file, offsetof);
+    // 여기서 file을 page_read_bytes만큼 읽어옴
+    if(file_read(file, page->frame->kva, page_read_bytes) != (int)page_read_bytes){
+        palloc_free_page(page->frame->kva);
+        return false;
+    }
+    // 나머지 0을 채우는 용도
+    memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
+
+    return true;
 }
 
 /* 파일 FILE의 OFS 오프셋에서 시작하는 세그먼트를
@@ -762,15 +777,19 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: lazy_load_segment에 전달할 aux 정보를 설정합니다. */
-		void *aux = NULL;
+		struct container *container = (struct container *)malloc(sizeof(struct container));
+        container->file = file;
+        container->page_read_bytes = page_read_bytes;
+        container->offset = ofs;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+					writable, lazy_load_segment, container))
 			return false;
 
 		/* 다음 페이지로 이동. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }
@@ -778,14 +797,24 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* USER_STACK 위치에 스택 페이지를 생성합니다.
  * 성공 시 true를 반환합니다. */
 static bool
-setup_stack (struct intr_frame *if_) {
+setup_stack(struct intr_frame *if_)
+{
 	bool success = false;
-	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
+	void *stack_bottom = (void *)(((uint8_t *)USER_STACK) - PGSIZE);
 
 	/* TODO: stack_bottom에 스택을 매핑하고 즉시 페이지를 할당합니다.
 	 * TODO: 성공 시, rsp를 적절하게 설정합니다.
 	 * TODO: 해당 페이지가 스택임을 표시해야 합니다. */
 	/* TODO: 여기에 코드를 작성하세요. */
+	if (vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, 1))
+	{
+		success = vm_claim_page(stack_bottom);
+		if (success)
+		{
+			if_->rsp = USER_STACK;
+			thread_current()->stack_bottom = stack_bottom;
+		}
+	}
 
 	return success;
 }

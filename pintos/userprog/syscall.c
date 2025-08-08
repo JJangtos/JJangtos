@@ -20,7 +20,7 @@ void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
 // 시스템 콜 선언
-void check_address(const char *addr);
+struct page * check_address(void *addr);
 pid_t sys_fork (const char *thread_name, struct intr_frame *if_);
 int dup2(int oldfd, int newfd);
 int add_file(struct file *file);
@@ -114,11 +114,13 @@ syscall_handler (struct intr_frame *f) {
 
 	case SYS_READ:
 		/* code */
+		check_valid_buffer(f->R.rsi, f->R.rdx, f->rsp, 1);
 		f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 
 	case SYS_WRITE:
 		/* code */
+		check_valid_buffer(f->R.rsi, f->R.rdx, f->rsp, 0);
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 
@@ -191,11 +193,13 @@ syscall_handler (struct intr_frame *f) {
 	}
 }
 
-void check_address(const char *addr)
+struct page * check_address(void *addr)
 {
-	// 할당할 때만 확인하고 나머지는 page fault로 확인
-    if (addr == NULL || !is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL)
-        exit(-1);
+	if(is_kernel_vaddr(addr)) exit(-1);
+
+	if(addr == NULL) exit(-1);
+
+	return spt_find_page(&thread_current()->spt, addr);
 }
 
 int add_file(struct file *file){
@@ -335,6 +339,16 @@ int open (const char *file){
 int filesize(int fd){
 	struct thread *cur = thread_current();
 	return file_length(cur->fdt[fd]);
+}
+/* Project 3 */
+void check_valid_buffer(void* buffer, unsigned size, void* rsp, bool to_write){
+    for(int i=0; i<size; i++){
+        struct page* page = check_address(buffer + i);
+        if(page == NULL)
+            exit(-1);
+        if(to_write == true && page->writable == false)
+            exit(-1);
+    }
 }
 
 int read (int fd, void *buffer, unsigned length){

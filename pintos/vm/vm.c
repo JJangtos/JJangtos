@@ -22,6 +22,7 @@ vm_init (void) {
 	register_inspect_intr ();  // 디버깅용 인터럽트 등록
 	/* 위의 줄은 수정하지 마시오. */
 	/* TODO: 여기에 코드를 작성하세요. */
+	list_init (&frame_table);
 }
 
 /* 페이지의 타입을 반환합니다.
@@ -116,8 +117,24 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: 페이지를 생성하고, VM 타입에 따라 initializer를 가져옵니다.
 		 * TODO: 그런 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성합니다.
 		 * TODO: uninit_new 호출 후 필요한 필드를 수정하세요. */
-		
+		struct page* page = (struct page*)malloc(sizeof(struct page));
+
+		typedef bool(*initializerFunc)(struct page *, enum vm_type, void *);
+        initializerFunc initializer = NULL;
+
+		switch(VM_TYPE(type)){
+            case VM_ANON:
+                initializer = anon_initializer;
+                break;
+            case VM_FILE:
+                initializer = file_backed_initializer;
+                break;
+		}
+		uninit_new(page, upage, init, type, aux, initializer);
+
+		page->writable = writable;
 		/* TODO: 생성한 페이지를 spt에 삽입합니다. */
+		return spt_insert_page(spt,page);
 	}
 err:
 	return false;
@@ -231,8 +248,24 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct page *page = NULL;
 	/* TODO: 접근 오류가 유효한지 확인합니다. */
 	/* TODO: 여기에 코드를 작성하세요. */
+	if(is_kernel_vaddr(addr)) return false;
 
-	return vm_do_claim_page (page);
+	void *rsp_stack = is_kernel_vaddr(f->rsp) ? thread_current()->rsp_stack : f->rsp;
+	if(not_present)
+	{
+		if(!vm_claim_page(addr))
+		{
+			if(rsp_stack - 8 <= addr && USER_STACK - 0x100000 <= addr && addr <= USER_STACK)
+			{
+				vm_stack_growth(thread_current()->stack_bottom-PGSIZE);
+				return true;
+			}
+			return false;
+		}
+		else
+			return true;
+	}
+	return false;
 }
 
 /* 페이지를 해제합니다.

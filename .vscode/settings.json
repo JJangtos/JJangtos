@@ -3,6 +3,7 @@
         "vm.h": "c",
         "hash.h": "c",
         "malloc.h": "c",
-        "mmu.h": "c"
+        "mmu.h": "c",
+        "thread.h": "c"
     }
 }

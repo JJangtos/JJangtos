@@ -28,9 +28,14 @@ vm_anon_init (void) {
 bool
 anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* 핸들러를 설정합니다 */
+	struct uinit_page *uninit = &page->uninit;
+	memset(uninit, 0, sizeof(struct uninit_page));
 	page->operations = &anon_ops;
 
 	struct anon_page *anon_page = &page->anon;
+	anon_page->swap_index=-1;
+
+	return true;
 }
 
 /* swap 디스크에서 내용을 읽어 페이지를 swap in 합니다. */
