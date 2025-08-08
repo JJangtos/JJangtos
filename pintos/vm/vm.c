@@ -4,6 +4,7 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "hash.h"
+#include "threads/vaddr.h"
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -91,8 +92,11 @@ spt_find_page (struct supplemental_page_table *spt, void *va) {
 	// 구조체 page 임시 객체, 이건 검색용도
 	struct page p;
 	struct hash_elem *e; 		// hash_find의 검색결과 저장용
+
 	// 찾고자 하는 가상 주소를 p의 va필드에 넣음. 이 va가 해시의 key 역할
-	p.va = va;
+	// p->va = va;
+	p.va = pg_round_down(va);
+
 	e = hash_find(&spt -> pages, &p.hash_elem);
 
 	// hash_find 반환값이 null이 아니면 page 꺼내서 반환
