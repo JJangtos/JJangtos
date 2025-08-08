@@ -5,6 +5,8 @@
 #include "vm/inspect.h"
 #include "hash.h"
 #include "threads/vaddr.h"
+#include "threads/palloc.h"
+#include "threads/mmu.h"
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -141,16 +143,35 @@ vm_evict_frame (void) {
 }
 
 /* palloc()을 사용하여 프레임을 얻습니다.
- * 사용 가능한 페이지가 없다면, 프레임을 eviction 하여 메모리를 확보합니다.
+ * 사용 가능한 페이지가 없다면, 프레임을 eviction(축출)하여 메모리를 확보합니다.
  * 항상 유효한 주소를 반환해야 합니다. */
+// [구현 2-1] 사용자 공간에서 사용할 새로운 물리메모리프레임을 하나 확보해서, 이를 관리할 struct frame 구조체를 생성하고 반환하는 것
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
-	/* TODO: 이 함수를 구현하세요. */
 
-	ASSERT (frame != NULL);
-	ASSERT (frame->page == NULL);
-	return frame;
+	/* TODO: 이 함수를 구현하세요. */
+	// user pool에서 물리메모리 페이지 하나를 가져옴
+	void *kva = palloc_get_page(PAL_USER | PAL_ZERO);
+
+	if (kva != NULL) {
+		// 프레임을 할당하고
+		frame = malloc(sizeof(struct frame));
+		
+		// 프레임 구조체의 멤버들을 초기화한 후
+		frame -> kva = kva;
+		frame -> page = NULL;
+
+		ASSERT (frame != NULL);
+		ASSERT (frame->page == NULL);
+
+		// 해당 프레임을 반환
+		return frame;
+	}
+	else{
+		// 페이지 할당에 실패한 경우 일단 PANIC("todo") 처리 (나중에 구현 예정)
+		PANIC("todo");
+	}
 }
 
 /* 스택을 성장시킵니다. */
@@ -185,23 +206,31 @@ vm_dealloc_page (struct page *page) {
 
 /* 주어진 VA에 해당하는 페이지를 할당합니다. */
 bool
-vm_claim_page (void *va UNUSED) {
+vm_claim_page (void *va) {
 	struct page *page = NULL;
 	/* TODO: 이 함수를 구현하세요. */
-
+	// va에 해당하는 페이지를 할당
+	page = spt_find_page (&thread_current()->spt, va);
+	// vm_do_claim_page 호출해서 실제로 프레임 할당
 	return vm_do_claim_page (page);
 }
 
 /* 주어진 PAGE를 할당하고 MMU를 설정합니다. */
+// page를 진짜 메모리와 연결시켜서, CPU가 접근 가능하게 만드는 역할
 static bool
 vm_do_claim_page (struct page *page) {
+	// 프레임(물리 메모리) 할당
 	struct frame *frame = vm_get_frame ();
 
 	/* 링크 설정 */
+	// 프레임과 페이지 연결
 	frame->page = page;
 	page->frame = frame;
 
+	// [구현 2-2]
 	/* TODO: 페이지 테이블 엔트리를 추가하여 페이지의 VA와 프레임의 PA를 매핑합니다. */
+	// = 가상 주소와 물리 주소를 매핑한 정보를 페이지 테이블에 추가한다.
+	pml4_set_page (thread_current()->pml4, page -> va, frame -> kva, true);
 
 	return swap_in (page, frame->kva);
 }
