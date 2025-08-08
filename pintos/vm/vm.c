@@ -3,8 +3,8 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
-#include "vaddr.h"
-#include "mmu.h"
+#include "threads/vaddr.h"
+#include "threads/mmu.h"
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -101,6 +101,10 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	return page; // 페이지 반환, 실패하면 87라인의 NULL 반환(if문 안 들어감)
 }
 
+bool insert_page(struct hash *pages, struct page *p){
+	return hash_insert(pages, &p->hash_elem) == NULL;
+}
+
 /* PAGE를 spt에 삽입합니다. 삽입 시 유효성 검사를 수행합니다. 
 이 함수는 인자로 주어진 보조 페이지 테이블에 페이지 구조체를 삽입합니다. 
 이 함수에서 주어진 보충 테이블에서 가상 주소가 존재하지 않는지 검사해야 합니다. */
@@ -111,9 +115,7 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 	return insert_page(&spt->pages, page);
 }
 
-bool insert_page(struct hash *pages, struct page *p){
-	return hash_insert(pages, &p->hash_elem) == NULL;
-}
+
 
 /* 페이지를 spt에서 제거하고 메모리를 해제합니다. */
 void
@@ -211,8 +213,7 @@ bool
 vm_claim_page (void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: 이 함수를 구현하세요. */
-	void *p = pg_round_down(va);
-	page = spt_find_page(&thread_current()->spt, p);
+	page = spt_find_page(&thread_current()->spt, (void *)va);
 
 	if(page == NULL){
 		return false;
