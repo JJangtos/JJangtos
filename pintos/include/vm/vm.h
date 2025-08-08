@@ -48,6 +48,7 @@ struct page {
 
 	/* Your implementation */
 	struct hash_elem hash_elem;
+	bool writable; // true : 쓰기 가능, false : 읽기 전용
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -88,7 +89,7 @@ struct page_operations {
  * All designs up to you for this. */
 struct supplemental_page_table {
 	struct hash pages;
-	
+
 };
 
 #include "threads/thread.h"

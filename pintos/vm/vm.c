@@ -4,6 +4,7 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "vaddr.h"
+#include "mmu.h"
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -190,7 +191,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct page *page = NULL;
 	/* TODO: 접근 오류가 유효한지 확인합니다. */
 	/* TODO: 여기에 코드를 작성하세요. */
-
+		
 	return vm_do_claim_page (page);
 }
 
@@ -202,11 +203,21 @@ vm_dealloc_page (struct page *page) {
 	free (page);
 }
 
-/* 주어진 VA에 해당하는 페이지를 할당합니다. */
+/* 주어진 VA에 해당하는 페이지를 할당합니다.
+ 위 함수는 인자로 주어진 va에 페이지를 할당하고, 해당 페이지에 프레임을 할당합니다. 
+ 당신은 우선 한 페이지를 얻어야 하고 그 이후에 해당 페이지를 인자로 갖는 vm_do_claim_page라는 함수를 호출해야 합니다.
+ */
 bool
 vm_claim_page (void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: 이 함수를 구현하세요. */
+	void *p = pg_round_down(va);
+	page = spt_find_page(&thread_current()->spt, p);
+
+	if(page == NULL){
+		return false;
+	}
+
 
 	return vm_do_claim_page (page);
 }
@@ -219,12 +230,22 @@ vm_claim_page (void *va UNUSED) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
+	struct thread *curr = thread_current();
 
 	/* 링크 설정 */
 	frame->page = page;
 	page->frame = frame;
 
 	/* TODO: 페이지 테이블 엔트리를 추가하여 페이지의 VA와 프레임의 PA를 매핑합니다. */
+	uint64_t PA = vtop(frame->kva);
+	// 인자: 현재 프로세스의 페이지 테이블, 매핑할 가상 주소(어떤 가상 주소를 매핑할지), 
+	// 매핑할 물리 메모리(어디 물리 메모리로 매핑할지), 쓰기 권한
+	if(!pml4_set_page(curr->pml4, page->va, (void *)PA, page->writable)){ 
+		palloc_free_page(frame->kva); //get page에서 사용한 페이지 palloc 해제
+		free(frame); // 마찬가지로 malloc frame 해제
+		page->frame = NULL; //프레임 초기화
+		return false;
+	}
 
 
 	return swap_in (page, frame->kva);
