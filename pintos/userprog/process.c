@@ -734,6 +734,23 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: 파일로부터 세그먼트를 로드하는 코드를 구현해야 합니다. */
     /* TODO: 이 함수는 특정 가상 주소(VA)에 대한 첫 페이지 폴트가 발생했을 때 호출됩니다. */
     /* TODO: 이 함수가 호출될 때, 폴트가 발생한 가상 주소(VA)를 사용할 수 있습니다. */
+	struct info *i = (struct info *)aux;
+
+	struct file *file = i->file;
+	off_t offset = i->offset;
+	size_t read_bytes = i->read_bytes;
+	size_t zero_bytes = PGSIZE - read_bytes;
+
+	if(file_read_at(file, page->frame->kva, read_bytes, offset) != (int)read_bytes){
+		free(i);
+		return false;
+	}
+
+	memset(page->frame->kva + read_bytes, 0, zero_bytes);
+
+	free(i);
+
+	return true;
 }
 
 /* FILE의 OFS 오프셋에서 시작하는 세그먼트를 UPAGE 가상 주소에 로드합니다.
@@ -768,7 +785,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 		
-		struct info *i = malloc(sizeof(struct info));
+		struct info *i = malloc(sizeof(struct info)); // 파일에서 읽어야할 정보를 받는 구조체
 		if(i == NULL) {
 			return false; // 실패시
 		}
