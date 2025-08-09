@@ -313,14 +313,68 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 }
 
 /* 보조 페이지 테이블을 src로부터 dst로 복사합니다. */
-bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
+								  struct supplemental_page_table *src UNUSED)
+{
+	// project 3
+	struct hash_iterator i;
+	hash_first(&i, &src->pages);
+	while (hash_next(&i))
+	{
+		struct page *parent_page = hash_entry(hash_cur(&i), struct page, hash_elem);
+		enum vm_type type = page_get_type(parent_page);
+		void *upage = parent_page->va;
+		bool writable = parent_page->writable;
+		vm_initializer *init = parent_page->uninit.init;
+		void *aux = parent_page->uninit.aux;
+
+		if (parent_page->operations->type != VM_UNINIT)
+		{
+			// dst에 페이지 만들고 즉시 클레임
+			if (!vm_alloc_page(type, upage, writable))
+				return false;
+			if (!vm_claim_page(upage))
+				return false;
+
+			// dst에서 페이지 찾아서 프레임 내용 복사
+			struct page *child_page = spt_find_page(dst, upage);
+			if (child_page == NULL)
+				return false;
+
+			memcpy(child_page->frame->kva, parent_page->frame->kva, PGSIZE);
+			continue;
+		}
+		else if (parent_page->operations->type == VM_UNINIT)
+		{
+			if (!vm_alloc_page_with_initializer(type, upage, writable, init, aux))
+				return false;
+		}
+		else
+		{
+			if (!vm_alloc_page(type, upage, writable))
+				return false;
+			if (!vm_claim_page(upage))
+				return false;
+		}
+
+		if (parent_page->operations->type != VM_UNINIT)
+		{
+			struct page *child_page = spt_find_page(dst, upage);
+			memcpy(child_page->frame->kva, parent_page->frame->kva, PGSIZE);
+		}
+	}
+	return true;
 }
 
+static void page_destructor(struct hash_elem *e, void *aux UNUSED)
+{
+	struct page *p = hash_entry(e, struct page, hash_elem);
+	vm_dealloc_page(p);
+}
 /* 보조 페이지 테이블이 사용하는 자원을 해제합니다. */
-void
-supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
+void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED)
+{
 	/* TODO: 해당 스레드가 보유한 모든 supplemental_page_table을 제거하고,
 	 * TODO: 수정된 내용을 저장소에 기록합니다. */
+	hash_clear(&spt->pages, page_destructor);
 }

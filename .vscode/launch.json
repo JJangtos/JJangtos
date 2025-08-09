@@ -20,6 +20,16 @@
       "miDebuggerPath": "/usr/bin/gdb", // 👈 중요: 실제 pintos-gdb 경로로 수정!
       "miDebuggerServerAddress": "localhost:1234",
       // "preLaunchTask": "Debug Pintos Test"
+    },
+    {
+      "name": "[Week 11,12]VM Debug",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/pintos/vm/build/kernel.o",
+      "cwd": "${workspaceFolder}/pintos/vm",
+      "miDebuggerPath": "/usr/bin/gdb", // 👈 중요: 실제 pintos-gdb 경로로 수정!
+      "miDebuggerServerAddress": "localhost:1234",
+      // "preLaunchTask": "Debug Pintos Test"
     }
   ]
 }
