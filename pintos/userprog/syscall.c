@@ -64,6 +64,9 @@ struct file *process_get_file (int fd){
 void
 syscall_handler (struct intr_frame *f) {
 	// TODO: Your implementation goes here.
+	#ifdef VM
+        thread_current()->rsp_stack = f->rsp; 
+    #endif
 	switch (f->R.rax)
 	{
 	// 시스템 콜 번호는 rax 레지스터에 저장된다.
@@ -196,7 +199,7 @@ syscall_handler (struct intr_frame *f) {
 struct page * check_address(void *addr)
 {
 	if(is_kernel_vaddr(addr)) exit(-1);
-
+	
 	if(addr == NULL) exit(-1);
 
 	return spt_find_page(&thread_current()->spt, addr);

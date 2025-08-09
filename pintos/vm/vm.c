@@ -233,6 +233,11 @@ vm_get_frame (void) {
 /* 스택을 성장시킵니다. */
 static void
 vm_stack_growth (void *addr UNUSED) {
+	if(vm_alloc_page(VM_ANON | VM_MARKER_0, addr, 1))
+	{
+		vm_claim_page(addr);
+		thread_current()->stack_bottom-=PGSIZE;
+	}
 }
 
 /* write-protected 페이지에 대한 fault를 처리합니다. */
