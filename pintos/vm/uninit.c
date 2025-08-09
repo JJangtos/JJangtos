@@ -49,10 +49,26 @@ uninit_initialize (struct page *page, void *kva) {
 	/* 먼저 가져옴. page_initializer가 값을 덮어쓸 수 있음 */
 	vm_initializer *init = uninit->init;
 	void *aux = uninit->aux;
+	enum vm_type type = page_get_type(page);
 
-	/* TODO: 이 함수를 수정해야 할 수도 있습니다. */
-	return uninit->page_initializer (page, uninit->type, kva) &&
-		(init ? init (page, aux) : true);
+	 switch (VM_TYPE(type)) {
+        case VM_ANON:
+            page->operations = &anon_ops;
+            break;
+        case VM_FILE:
+            page->operations = &file_ops;
+            break;
+    }
+
+    // 실제 데이터 로더를 호출합니다.
+    if (init) {
+        return init(page, aux);
+    }
+
+    return true;
+	// /* TODO: 이 함수를 수정해야 할 수도 있습니다. */
+	// return uninit->page_initializer (page, uninit->type, kva) &&
+	// 	(init ? init (page, aux) : true);
 }
 
 /* uninit_page가 보유한 리소스를 해제합니다.

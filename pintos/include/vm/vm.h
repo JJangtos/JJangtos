@@ -120,4 +120,7 @@ void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
 
+extern const struct page_operations anon_ops;
+extern const struct page_operations file_ops; // file_ops도 동일하게 처리
+
 #endif  /* VM_VM_H */

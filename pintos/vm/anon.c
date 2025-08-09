@@ -10,7 +10,7 @@ static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
 
 /* 이 구조체는 수정하지 마세요 */
-static const struct page_operations anon_ops = {
+const struct page_operations anon_ops = {
 	.swap_in = anon_swap_in,
 	.swap_out = anon_swap_out,
 	.destroy = anon_destroy,

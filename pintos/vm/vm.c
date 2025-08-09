@@ -212,8 +212,18 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct page *page = NULL;
 	/* TODO: 접근 오류가 유효한지 확인합니다. */
 	/* TODO: 여기에 코드를 작성하세요. */
-	
-		
+    if (is_kernel_vaddr(addr) || !not_present) { // 커널 영역이거나, 페이지 자체가 없거나
+        return false;
+    }
+    page = spt_find_page(spt, addr);
+    if (page == NULL) {
+        return false;
+    }
+
+    if (write && !page->writable) {
+        return false;
+    }
+
 	return vm_do_claim_page (page);
 }
 
@@ -258,10 +268,10 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: 페이지 테이블 엔트리를 추가하여 페이지의 VA와 프레임의 PA를 매핑합니다. */
-	uint64_t PA = vtop(frame->kva);
+	//uint64_t PA = vtop(frame->kva);
 	// 인자: 현재 프로세스의 페이지 테이블, 매핑할 가상 주소(어떤 가상 주소를 매핑할지), 
 	// 매핑할 물리 메모리(어디 물리 메모리로 매핑할지), 쓰기 권한
-	if(!pml4_set_page(curr->pml4, page->va, (void *)PA, page->writable)){ 
+	if(!pml4_set_page(curr->pml4, page->va, frame->kva, page->writable)){ 
 		palloc_free_page(frame->kva); //get page에서 사용한 페이지 palloc 해제
 		free(frame); // 마찬가지로 malloc frame 해제
 		page->frame = NULL; //프레임 초기화
