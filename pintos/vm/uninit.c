@@ -42,7 +42,7 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 }
 
 /* 첫 번째 페이지 폴트 시 페이지를 초기화합니다 */
-static bool
+bool
 uninit_initialize (struct page *page, void *kva) {
 	struct uninit_page *uninit = &page->uninit;
 

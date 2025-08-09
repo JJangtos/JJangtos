@@ -5,6 +5,7 @@
 #include "vm/inspect.h"
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
+#include "vm/uninit.h"
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -61,7 +62,13 @@ static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
 
 /* initializer를 통해 대기 중인 페이지 객체를 생성합니다.
- * 페이지를 직접 생성하지 말고, 이 함수나 `vm_alloc_page`를 통해 생성하세요. */
+ * 페이지를 직접 생성하지 말고, 이 함수나 `vm_alloc_page`를 통해 생성하세요. 
+ 이 함수는 초기화되지 않은 주어진 type의 페이지를 생성합니다. 
+ 초기화되지 않은 페이지의 swap_in 핸들러는 자동적으로 페이지 타입에 맞게 페이지를 초기화하고 
+ 주어진 AUX를 인자로 삼는 INIT 함수를 호출합니다. 
+당신이 페이지 구조체를 가지게 되면 프로세스의 보조 페이지 테이블에 그 페이지를 삽입하십시오. 
+vm.h에 정의되어 있는 VM_TYPE 매크로를 사용하면 편리할 것입니다.  
+ */
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
@@ -75,8 +82,20 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: 페이지를 생성하고, VM 타입에 따라 initializer를 가져옵니다.
 		 * TODO: 그런 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성합니다.
 		 * TODO: uninit_new 호출 후 필요한 필드를 수정하세요. */
+		struct page *page = (struct page *)malloc(sizeof(struct page)); // 페이지 만들고
+		if(page == NULL){
+			goto err;
+		}
+		uninit_new(page, upage, init, type, aux, uninit_initialize); // uninit_new 함수로 해당 페이지를 UNINIT 타입으로 초기화
+		page->writable = writable; // writable 정보도 바꿔줌
 		
 		/* TODO: 생성한 페이지를 spt에 삽입합니다. */
+		if(!spt_insert_page(spt, page)){ // 삽입
+			free(page); // 삽입 실패하면 페이지 해제
+			goto err;
+		}
+		return true;
+
 	}
 err:
 	return false;

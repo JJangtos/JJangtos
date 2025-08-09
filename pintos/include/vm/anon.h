@@ -5,6 +5,7 @@ struct page;
 enum vm_type;
 
 struct anon_page {
+    // 추가해야함
 };
 
 void vm_anon_init (void);

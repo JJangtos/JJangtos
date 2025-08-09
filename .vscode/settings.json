@@ -4,6 +4,7 @@
         "hash.h": "c",
         "malloc.h": "c",
         "vaddr.h": "c",
-        "stddef.h": "c"
+        "stddef.h": "c",
+        "uninit.h": "c"
     }
 }
