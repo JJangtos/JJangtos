@@ -10,7 +10,7 @@
 #include "vm/vm.h"
 #include "vm/uninit.h"
 
-static bool uninit_initialize (struct page *page, void *kva);
+bool uninit_initialize (struct page *page, void *kva);
 static void uninit_destroy (struct page *page);
 
 /* 이 구조체는 수정하지 마세요 */

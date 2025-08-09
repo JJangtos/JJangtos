@@ -92,6 +92,12 @@ struct supplemental_page_table {
 
 };
 
+struct info { // 바이너리 파일을 로드할 때 필수적인 정보를 포함하는 구조체
+	struct file *file; // 어떤 파일을 읽을지
+	off_t offset; // 파일의 어디부터 읽어야 할지
+	size_t read_bytes; // 해당 페이지에 몇 바이트를 파일에서 읽어와야 하는지
+};
+
 #include "threads/thread.h"
 void supplemental_page_table_init (struct supplemental_page_table *spt);
 bool supplemental_page_table_copy (struct supplemental_page_table *dst,
