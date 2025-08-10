@@ -6,6 +6,7 @@
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
 #include "vm/uninit.h"
+#include "lib/string.h" // memcpy 사용
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -216,11 +217,11 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
         return false;
     }
     page = spt_find_page(spt, addr);
-    if (page == NULL) {
+    if (page == NULL) { // spt_find_page가 실패했을 경우
         return false;
     }
 
-    if (write && !page->writable) {
+    if (write && !page->writable) { 
         return false;
     }
 
@@ -288,15 +289,67 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	hash_init(&spt->pages, page_hash, page_less, NULL);
 }
 
-/* 보조 페이지 테이블을 src로부터 dst로 복사합니다. */
+
+/* 보조 페이지 테이블을 src로부터 dst로 복사합니다. 
+src를 dst로 supplemental page table를 복사하세요. 
+이것은 자식이 부모의 실행 context를 상속할 필요가 있을 때 사용됩니다.(예 - fork()). 
+src의 supplemental page table를 반복하면서 dst의 supplemental page table의 엔트리의 정확한 복사본을 만드세요. 
+당신은 초기화되지않은(uninit) 페이지를 할당하고 그것들을 바로 요청할 필요가 있을 것입니다.*/
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+                              struct supplemental_page_table *src) {
+    struct hash_iterator i;
+    hash_first (&i, &src->pages);
+    while (hash_next (&i)) {
+        struct page *parent_page = hash_entry(hash_cur(&i), struct page, hash_elem);
+        enum vm_type type = page_get_type(parent_page);
+        void *upage = parent_page->va;
+        bool writable = parent_page->writable;
+        bool success = false;
+
+        if (type == VM_UNINIT) {
+            // Case 1: 미초기화 페이지
+            vm_initializer *init = parent_page->uninit.init;
+            void *aux = parent_page->uninit.aux;
+            
+            success = vm_alloc_page_with_initializer(VM_TYPE(parent_page->uninit.type), upage, writable, init, aux);
+        } else {
+            // Case 2: 이미 메모리에 로드된 페이지 (ANON 또는 FILE)
+            success = vm_alloc_page(type, upage, writable);
+            
+            if (success) {
+                struct page *child_page = spt_find_page(dst, upage);
+                // 자식 페이지를 claim하고 부모 데이터를 복사
+                if (child_page && vm_do_claim_page(child_page) && parent_page->frame) {
+                    memcpy(child_page->frame->kva, parent_page->frame->kva, PGSIZE);
+                }
+            }
+        }
+        
+        if (!success) {
+            return false;
+        }
+    }
+    return true;
 }
 
-/* 보조 페이지 테이블이 사용하는 자원을 해제합니다. */
+static void spt_page_destructor(struct hash_elem *e, void *aux UNUSED) {
+    struct page *p = hash_entry(e, struct page, hash_elem);
+    vm_dealloc_page(p);
+}
+
+/* 보조 페이지 테이블이 사용하는 자원을 해제합니다.
+supplemental page table에 의해 유지되던 모든 자원들을 free합니다. 
+이 함수는 process가 exit할 때(userprog/process.c의 process_exit()) 호출됩니다. 
+당신은 페이지 엔트리를 반복하면서 테이블의 페이지에 destroy(page)를 호출하여야 합니다. 
+당신은 이 함수에서 실제 페이지 테이블(pml4)와 물리 주소(palloc된 메모리)에 대해 걱정할 필요가 없습니다. 
+supplemental page table이 정리되어지고 나서, 호출자가 그것들을 정리할 것입니다. */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: 해당 스레드가 보유한 모든 supplemental_page_table을 제거하고,
 	 * TODO: 수정된 내용을 저장소에 기록합니다. */
+	if (spt == NULL || hash_empty(&spt->pages)) {
+    	return;
+    }
+    hash_clear(&spt->pages, spt_page_destructor);
 }
