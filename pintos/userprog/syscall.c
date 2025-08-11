@@ -245,10 +245,10 @@ tid_t sys_fork (const char *thread_name, struct intr_frame *if_){
 }
 
 int write (int fd, const void *buffer, unsigned length) {
-	check_address(buffer);
+	//check_address(buffer);
 	
 	// write에서 STDIN을 할 필요 없음
-	if (fd <= 0 || buffer == NULL || fd >= MAX_FD)
+	if (fd <= 0 || buffer == NULL || fd >= MAX_FD || !is_user_vaddr(buffer) || !is_user_vaddr(buffer + length - 1))
 		return -1;
 
 	struct thread *cur = thread_current();
@@ -344,9 +344,9 @@ int filesize(int fd){
 }
 
 int read (int fd, void *buffer, unsigned length){
-	check_address(buffer);
+	//check_address(buffer);
 
-	if (fd < 0 || fd >= MAX_FD){
+	if (fd < 0 || fd >= MAX_FD || buffer == NULL || !is_user_vaddr(buffer) || !is_user_vaddr(buffer + length - 1)){
 		return -1;
 	}
 	

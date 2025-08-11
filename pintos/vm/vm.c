@@ -234,21 +234,30 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
     page = spt_find_page(spt, addr);
     if (page == NULL) { // spt_find_page가 실패했을 경우
         // user가 false이면 커널에서 발생한 폴트이므로 스택 증가 대상이 아님
-        if (!user) {
-            return false;
-        }
-        if ((USER_STACK - STACK_MAX_SIZE) < addr // 스택의 가장 아래 부분보다는 큰지(최대 스택 영역 안에 있는지)
-		 && addr < USER_STACK // USER STACK(높은 주소) 아래에 있는지
-		 && addr >= f->rsp - 32) //
-        {
-            vm_stack_growth(addr);
-            // 스택증가 후, 핸들러의 나머지 부분을 실행하기 위해 다시 페이지 탐색
-            page = spt_find_page(spt, addr);
-            if (page == NULL) {
-                return false; // 스택 증가 후에도 페이지를 못 찾으면 진짜 에러
+        // if (!user) {
+        //     return false;
+        // }
+        bool is_stack_growth = false; // 플래그 설정
+
+        if (user) {
+            // 사용자 모드 폴트: rsp 근접성까지 엄격하게 검사
+            if ((USER_STACK - STACK_MAX_SIZE) < addr && addr < USER_STACK && addr >= f->rsp - 32) {
+                is_stack_growth = true;
             }
+        } else { // 커널 모드 폴트 (시스템 콜 내부)
+            // 커널 모드 폴트: rsp 근접성 없이 관대하게 검사
+            if ((USER_STACK - STACK_MAX_SIZE) < addr && addr < USER_STACK) {
+                is_stack_growth = true;
+            }
+        }
+
+        if (is_stack_growth) {
+            vm_stack_growth(addr);
+            // vm_stack_growth 안에서 SPT에 페이지를 넣으므로, 다시 찾아야 함
+            page = spt_find_page(spt, addr);
+            if (page == NULL) return false; // 실패
         } else {
-            return false; // 유효한 스택 증가 요청이 아님
+            return false; // 스택 확장 아님
         }
     }
     
