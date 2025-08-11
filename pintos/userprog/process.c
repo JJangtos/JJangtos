@@ -798,7 +798,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		/* TODO: lazy_load_segment 함수에 정보를 전달하기 위해 aux를 설정해야 합니다. */
 		void *aux = i;
 
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
+		if (!vm_alloc_page_with_initializer (VM_FILE, upage,
 					writable, lazy_load_segment, aux)){
 			free(i); // 실패시 malloc 메모리 해제
 			return false;

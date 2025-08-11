@@ -194,8 +194,14 @@ syscall_handler (struct intr_frame *f) {
 void check_address(const char *addr)
 {
 	// 할당할 때만 확인하고 나머지는 page fault로 확인
-    if (addr == NULL || !is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL)
+	// VM 도입 이후부턴 프로그램의 코드와 데이터는 실행 시점에 물리 메모리에 없음, 따라서 pml4_get_page를 사용하면 무조건 NULL 처리됨
+    if (addr == NULL || !is_user_vaddr(addr)) //|| pml4_get_page(thread_current()->pml4, addr) == NULL) 
         exit(-1);
+	
+	if (spt_find_page(&thread_current()->spt, addr) == NULL) {
+        exit(-1);
+    }
+	
 }
 
 int add_file(struct file *file){

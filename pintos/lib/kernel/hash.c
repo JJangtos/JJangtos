@@ -124,7 +124,7 @@ hash_find (struct hash *h, struct hash_elem *e) {
 	return find_elem (h, find_bucket (h, e), e);
 }
 
-/* Finds, removes, and returns an element equal to E in hash
+/* Finds, removes, and returns an element equal to E in hashs
    table H.  Returns a null pointer if no equal element existed
    in the table.
 

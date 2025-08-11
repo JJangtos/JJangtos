@@ -195,9 +195,20 @@ vm_get_frame (void) {
 	return frame;
 }
 
-/* 스택을 성장시킵니다. */
+/* 스택을 성장시킵니다.
+하나 이상의 anonymous 페이지를 할당하여 스택 크기를 늘립니다. 
+이로써 addr은 faulted 주소(폴트가 발생하는 주소) 에서 유효한 주소가 됩니다.  
+페이지를 할당할 때는 주소를 PGSIZE 기준으로 내림하세요.
+대부분의 OS에서 스택 크기는 절대적으로 제한되어있습니다. 
+일부 OS는 사용자가 크기 제한을 조정할 수 있게 합니다(예를 들자면, 많은 Unix 시스템에서 ulimit 커맨드로 조정할 수 있습니다). 
+많은 GNU/Linux 시스템에서 기본 제한은 8MB입니다. 이 프로젝트의 경우 스택 크기를 최대 1MB로 제한해야 합니다 */
 static void
 vm_stack_growth (void *addr UNUSED) {
+	void *page_addr = pg_round_down(addr); // 주소 내림
+
+	if (vm_alloc_page(VM_ANON, page_addr, true)) { // 익명 페이지를 할당
+		vm_claim_page(page_addr); 
+	}
 }
 
 /* write-protected 페이지에 대한 fault를 처리합니다. */
@@ -205,7 +216,11 @@ static bool
 vm_handle_wp (struct page *page UNUSED) {
 }
 
-/* 성공 시 true를 반환합니다. */
+/* 성공 시 true를 반환합니다. 
+이 함수는 Page Fault 예외를 처리하는 동안 userprog/exception.c에서 page_fault() 로 호출됩니다.
+ 이 함수에서는 Page Fault가 스택을 증가시켜야하는 경우에 해당하는지 아닌지를 확인해야 합니다. 
+ 스택 증가로 Page Fault 예외를 처리할 수 있는지 확인한 경우, Page Fault가 발생한 주소로 vm_stack_growth를 호출합니다.
+*/
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
@@ -218,8 +233,25 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
     }
     page = spt_find_page(spt, addr);
     if (page == NULL) { // spt_find_page가 실패했을 경우
-        return false;
+        // user가 false이면 커널에서 발생한 폴트이므로 스택 증가 대상이 아님
+        if (!user) {
+            return false;
+        }
+        if ((USER_STACK - STACK_MAX_SIZE) < addr // 스택의 가장 아래 부분보다는 큰지(최대 스택 영역 안에 있는지)
+		 && addr < USER_STACK // USER STACK(높은 주소) 아래에 있는지
+		 && addr >= f->rsp - 32) //
+        {
+            vm_stack_growth(addr);
+            // 스택증가 후, 핸들러의 나머지 부분을 실행하기 위해 다시 페이지 탐색
+            page = spt_find_page(spt, addr);
+            if (page == NULL) {
+                return false; // 스택 증가 후에도 페이지를 못 찾으면 진짜 에러
+            }
+        } else {
+            return false; // 유효한 스택 증가 요청이 아님
+        }
     }
+    
 
     if (write && !page->writable) { 
         return false;
