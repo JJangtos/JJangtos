@@ -7,10 +7,6 @@ struct page;
 enum vm_type;
 
 struct file_page {
-	struct file *file;   /* Reopened handle owned by this page */
-    off_t offset;        /* File offset for this page */
-    size_t read_bytes;   /* Bytes to read from file into this page */
-    bool is_last;        /* Marks the last page in this mapping */
 };
 
 void vm_file_init (void);
