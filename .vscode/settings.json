@@ -11,6 +11,7 @@
         "tuple": "c",
         "type_traits": "c",
         "utility": "c",
-        "filesys.h": "c"
+        "filesys.h": "c",
+        "bitmap.h": "c"
     }
 }

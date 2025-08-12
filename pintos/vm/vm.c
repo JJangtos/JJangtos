@@ -165,7 +165,6 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	vm_dealloc_page (page);
-	return true;
 }
 
 /* 희생될 프레임을 선택합니다. */
@@ -199,10 +198,11 @@ vm_get_victim (void) {
  * 실패 시 NULL을 반환합니다. */
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
-	/* TODO: victim을 swap out 하고 해당 프레임을 반환합니다. */
-	swap_out(victim->page);
-	return victim;
+    struct frame *victim = vm_get_victim ();
+    /* victim을 swap out */
+    swap_out(victim->page);
+    /* evict 후 프레임은 재사용될 예정이므로 페이지 역참조는 비워둠 */
+    return victim;
 }
 
 /* palloc()을 사용하여 프레임을 얻습니다.

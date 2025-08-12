@@ -329,7 +329,10 @@ process_cleanup (void) {
 	struct thread *curr = thread_current ();
 
 #ifdef VM
-	supplemental_page_table_kill (&curr->spt);
+	 if(!hash_empty(&curr->spt.pages))
+	{
+        supplemental_page_table_kill(&curr->spt);
+    }
 #endif
 
 	uint64_t *pml4;
@@ -734,23 +737,17 @@ install_page (void *upage, void *kpage, bool writable) {
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
-	/* TODO: 파일로부터 세그먼트를 로드합니다. */
-	/* TODO: 이 함수는 VA 주소에서 첫 번째 페이지 폴트가 발생했을 때 호출됩니다. */
-	/* TODO: 이 함수를 호출할 때 VA는 이미 유효합니다. */
-	struct file *file = ((struct container *)aux)->file;
-    off_t offsetof = ((struct container *)aux)->offset;
-    size_t page_read_bytes = ((struct container *)aux)->page_read_bytes;
+    struct container *c = (struct container *)aux;
+    struct file *file = c->file;
+    off_t offsetof = c->offset;
+    size_t page_read_bytes = c->page_read_bytes;
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
     file_seek(file, offsetof);
-    // 여기서 file을 page_read_bytes만큼 읽어옴
-    if(file_read(file, page->frame->kva, page_read_bytes) != (int)page_read_bytes){
-        palloc_free_page(page->frame->kva);
+    if (file_read(file, page->frame->kva, page_read_bytes) != (int)page_read_bytes) {
         return false;
     }
-    // 나머지 0을 채우는 용도
     memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
-
     return true;
 }
 
@@ -769,34 +766,33 @@ lazy_load_segment (struct page *page, void *aux) {
  * 성공 시 true를 반환합니다. */
 static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
-		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
-	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
-	ASSERT (pg_ofs (upage) == 0);
-	ASSERT (ofs % PGSIZE == 0);
+        uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
+    ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
+    ASSERT (pg_ofs (upage) == 0);
+    ASSERT (ofs % PGSIZE == 0);
 
-	while (read_bytes > 0 || zero_bytes > 0) {
-		/* 이 페이지를 어떻게 채울지 계산합니다.
-		 * FILE에서 PAGE_READ_BYTES 바이트를 읽고,
-		 * 나머지 PAGE_ZERO_BYTES 바이트는 0으로 채웁니다. */
-		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-		size_t page_zero_bytes = PGSIZE - page_read_bytes;
+    while (read_bytes > 0 || zero_bytes > 0) {
+        size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+        size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		/* TODO: lazy_load_segment에 전달할 aux 정보를 설정합니다. */
-		struct container *container = (struct container *)malloc(sizeof(struct container));
+        /* lazy_load_segment에 전달할 aux 설정 */
+        struct container *container = (struct container *)malloc(sizeof(struct container));
         container->file = file;
         container->page_read_bytes = page_read_bytes;
         container->offset = ofs;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, container))
-			return false;
 
-		/* 다음 페이지로 이동. */
-		read_bytes -= page_read_bytes;
-		zero_bytes -= page_zero_bytes;
-		upage += PGSIZE;
-		ofs += page_read_bytes;
-	}
-	return true;
+        /* **중요**: VM_FILE 로 등록해야 file-backed 페이지가 됨 */
+        if (!vm_alloc_page_with_initializer (VM_FILE, upage,
+                    writable, lazy_load_segment, container))
+            return false;
+
+        /* 다음 페이지로 이동 */
+        read_bytes -= page_read_bytes;
+        zero_bytes -= page_zero_bytes;
+        upage += PGSIZE;
+        ofs += page_read_bytes;
+    }
+    return true;
 }
 
 /* USER_STACK 위치에 스택 페이지를 생성합니다.
