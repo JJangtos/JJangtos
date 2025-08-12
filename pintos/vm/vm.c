@@ -142,17 +142,14 @@ err:
 
 /* spt에서 VA에 해당하는 페이지를 찾아 반환합니다.
  * 실패 시 NULL을 반환합니다. */
-struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	/* TODO: 이 함수를 구현하세요. */
-	struct page* page = (struct page*)malloc(sizeof(struct page)); // dummy page 생성
-	struct hash_elem *e; // va가 가르키는 가상의 page의 시작 포인트 (offset이 0으로 설정된 va) 반환
-	page->va=pg_round_down(va); //페이지 정렬: va를 페이지 단위로 내림(round down)하여, 페이지의 시작 주소로 설정. 이는 spt에 저장된 키(va)와 정확히 일치시키기 위함
-	e = hash_find(&spt->pages, &page->hash_elem); // page->va를 기준으로 hash_elem을 조회, 내부적으로 page_hash와 page_less를 이용하여 비교
-	free(page); // 더미 page는 더 이상 필요 없으므로 해제
-	return e !=NULL ? hash_entry(e,struct page, hash_elem) : NULL; // e가 NULL이 아니면, e가 가리키는 struct page 구조체를 반환, hash_entry는 hash_elem 포인터를 실제 struct page 포인터로 변환
-}
+struct page *spt_find_page(struct supplemental_page_table *spt, void *va) {
+    struct page key;                 // 스택에 키만 생성 (힙 할당 금지)
+    struct hash_elem *e;
 
+    key.va = pg_round_down(va);      // 키는 va만 맞으면 됨 (hash/less가 va 기준이어야 함)
+    e = hash_find(&spt->pages, &key.hash_elem);
+    return e ? hash_entry(e, struct page, hash_elem) : NULL;
+}
 /* PAGE를 spt에 삽입합니다. 삽입 시 유효성 검사를 수행합니다. */
 bool
 spt_insert_page (struct supplemental_page_table *spt UNUSED,
