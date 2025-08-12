@@ -30,22 +30,19 @@ struct hash_elem {
 	struct list_elem list_elem;
 };
 
-/* Converts pointer to hash element HASH_ELEM into a pointer to
- * the structure that HASH_ELEM is embedded inside.  Supply the
- * name of the outer structure STRUCT and the member name MEMBER
- * of the hash element.  See the big comment at the top of the
- * file for an example. */
+/* HASH_ELEM 포인터를, 그 HASH_ELEM이 포함된 구조체의 포인터로 변환합니다.
+	HASH_ELEM이 포함된 외부 구조체의 이름(STRUCT)과, 
+	해당 구조체 내의 hash element 멤버 이름(MEMBER)을 지정하세요.
+	사용 예시는 이 파일 상단의 큰 주석을 참고하세요.*/
 #define hash_entry(HASH_ELEM, STRUCT, MEMBER)                   \
 	((STRUCT *) ((uint8_t *) &(HASH_ELEM)->list_elem        \
 		- offsetof (STRUCT, MEMBER.list_elem)))
 
-/* Computes and returns the hash value for hash element E, given
- * auxiliary data AUX. */
+/* 해시 요소 e와 보조 테이블 AUX를 기반으로 해시 값을 계산하여 반환합니다. */
 typedef uint64_t hash_hash_func (const struct hash_elem *e, void *aux);
 
-/* Compares the value of two hash elements A and B, given
- * auxiliary data AUX.  Returns true if A is less than B, or
- * false if A is greater than or equal to B. */
+/* 두 해시 요소 A와 B, 그리고 보조 데이터 AUX를 기준으로 두 값을 비교합니다.
+만약 A가 B보다 작다면 true, 그렇지 않으면 false를 반환합니다. */
 typedef bool hash_less_func (const struct hash_elem *a,
 		const struct hash_elem *b,
 		void *aux);

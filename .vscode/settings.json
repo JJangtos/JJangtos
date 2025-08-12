@@ -1,0 +1,25 @@
+{
+    "files.associations": {
+        "atomic": "c",
+        "*.inc": "c",
+        "system_error": "c",
+        "flags.h": "c",
+        "vm.h": "c",
+        "hash.h": "c",
+        "inspect.h": "c",
+        "thread.h": "c",
+        "array": "c",
+        "chrono": "c",
+        "compare": "c",
+        "functional": "c",
+        "ratio": "c",
+        "tuple": "c",
+        "type_traits": "c",
+        "utility": "c",
+        "malloc.h": "c",
+        "palloc.h": "c",
+        "vaddr.h": "c",
+        "string.h": "c",
+        "memory_resource": "c"
+    }
+}

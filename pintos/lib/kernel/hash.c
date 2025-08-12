@@ -19,8 +19,9 @@ static void insert_elem (struct hash *, struct list *, struct hash_elem *);
 static void remove_elem (struct hash *, struct hash_elem *);
 static void rehash (struct hash *);
 
-/* Initializes hash table H to compute hash values using HASH and
-   compare hash elements using LESS, given auxiliary data AUX. */
+/* 해시 테이블 H를 초기화합니다.
+   주어진 보조 데이터 AUX를 바탕으로, HASH 함수를 사용해 해시값을 계산하고,
+   LESS 함수를 사용해 해시 요소들을 비교합니다. */
 bool
 hash_init (struct hash *h,
 		hash_hash_func *hash, hash_less_func *less, void *aux) {
@@ -84,10 +85,9 @@ hash_destroy (struct hash *h, hash_action_func *destructor) {
 	free (h->buckets);
 }
 
-/* Inserts NEW into hash table H and returns a null pointer, if
-   no equal element is already in the table.
-   If an equal element is already in the table, returns it
-   without inserting NEW. */
+/* NEW 요소를 해시 테이블 H에 삽입합니다.
+만약 같은 요소가 이미 테이블에 없다면 삽입하고 NULL을 반환합니다.
+만약 같은 요소가 이미 있다면 삽입하지 않고, 기존 요소를 반환합니다. */
 struct hash_elem *
 hash_insert (struct hash *h, struct hash_elem *new) {
 	struct list *bucket = find_bucket (h, new);
@@ -117,8 +117,8 @@ hash_replace (struct hash *h, struct hash_elem *new) {
 	return old;
 }
 
-/* Finds and returns an element equal to E in hash table H, or a
-   null pointer if no equal element exists in the table. */
+/* 해시 테이블 H에서 E와 같은 요소를 찾아 반환합니다.
+	해당하는 요소가 없다면 NULL 포인터를 반환합니다. */
 struct hash_elem *
 hash_find (struct hash *h, struct hash_elem *e) {
 	return find_elem (h, find_bucket (h, e), e);
@@ -191,14 +191,13 @@ hash_first (struct hash_iterator *i, struct hash *h) {
 	i->elem = list_elem_to_hash_elem (list_head (i->bucket));
 }
 
-/* Advances I to the next element in the hash table and returns
-   it.  Returns a null pointer if no elements are left.  Elements
-   are returned in arbitrary order.
+/*I를 해시 테이블에서 다음 요소로 이동시키고 그 요소를 반환합니다.
+더 이상 남아 있는 요소가 없으면 NULL 포인터를 반환합니다.
+요소들은 임의의 순서로 반환됩니다.
 
-   Modifying a hash table H during iteration, using any of the
-   functions hash_clear(), hash_destroy(), hash_insert(),
-   hash_replace(), or hash_delete(), invalidates all
-   iterators. */
+순회(iteration) 중에 해시 테이블 H를 다음 함수들(hash_clear(), hash_destroy(), hash_insert(),
+hash_replace(), hash_delete())로 수정하면, 모든 반복자(iterator)는 더 이상 유효하지 않게 됩니다.*/
+
 struct hash_elem *
 hash_next (struct hash_iterator *i) {
 	ASSERT (i != NULL);
@@ -215,9 +214,9 @@ hash_next (struct hash_iterator *i) {
 	return i->elem;
 }
 
-/* Returns the current element in the hash table iteration, or a
-   null pointer at the end of the table.  Undefined behavior
-   after calling hash_first() but before hash_next(). */
+/* 해시 테이블 순회에서 현재 요소를 반환합니다.
+   테이블의 끝에 도달하면 NULL 포인터를 반환합니다.
+   hash_first()를 호출한 직후, hash_next()를 호출하기 전에 이 함수를 사용하면 동작이 정의되지 않습니다. */
 struct hash_elem *
 hash_cur (struct hash_iterator *i) {
 	return i->elem;
@@ -239,7 +238,9 @@ hash_empty (struct hash *h) {
 #define FNV_64_PRIME 0x00000100000001B3UL
 #define FNV_64_BASIS 0xcbf29ce484222325UL
 
-/* Returns a hash of the SIZE bytes in BUF. */
+// 주어진 메모리 블록(버퍼)을 입력으로 받아서, 
+// 그 값을 바탕으로 해시값(key를 위한 숫자)을 생성해주는 해시 함수
+// buf:해시값을 만들 입력 데이터의 시작주소, size:해시를 생성할 데이터의 길이(바이트 단위)
 uint64_t
 hash_bytes (const void *buf_, size_t size) {
 	/* Fowler-Noll-Vo 32-bit hash, for bytes. */

@@ -6,6 +6,7 @@ __attribute__((always_inline))
 static __inline int64_t syscall (uint64_t num_, uint64_t a1_, uint64_t a2_,
 		uint64_t a3_, uint64_t a4_, uint64_t a5_, uint64_t a6_) {
 	int64_t ret;
+	// 레지스터에 대응되는 변수 지정
 	register uint64_t *num asm ("rax") = (uint64_t *) num_;
 	register uint64_t *a1 asm ("rdi") = (uint64_t *) a1_;
 	register uint64_t *a2 asm ("rsi") = (uint64_t *) a2_;
@@ -14,7 +15,9 @@ static __inline int64_t syscall (uint64_t num_, uint64_t a1_, uint64_t a2_,
 	register uint64_t *a5 asm ("r8") = (uint64_t *) a5_;
 	register uint64_t *a6 asm ("r9") = (uint64_t *) a6_;
 
+	// 실제 레지스터에 값을 대입
 	__asm __volatile(
+			// %1(num)의 값을 rax에 복사
 			"mov %1, %%rax\n"
 			"mov %2, %%rdi\n"
 			"mov %3, %%rsi\n"
@@ -22,7 +25,10 @@ static __inline int64_t syscall (uint64_t num_, uint64_t a1_, uint64_t a2_,
 			"mov %5, %%r10\n"
 			"mov %6, %%r8\n"
 			"mov %7, %%r9\n"
+			// syscall 명령으로 커널 진입 
+			// (여기서 아마 커널진입주소로 설정해놓은 syscall_entry로 점프-> syscall_handler호출)
 			"syscall\n"
+			// =a는 "결과는 rax에 들어있다"는 뜻
 			: "=a" (ret)
 			: "g" (num), "g" (a1), "g" (a2), "g" (a3), "g" (a4), "g" (a5), "g" (a6)
 			: "cc", "memory");
