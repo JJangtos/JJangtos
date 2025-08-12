@@ -5,25 +5,26 @@
 #include "hash.h"
 
 enum vm_type {
-	/* page not initialized */
+	/* 페이지가 아직 초기화되지 않음 */
 	VM_UNINIT = 0,
-	/* page not related to the file, aka anonymous page */
+	/* 파일과 관련 없는 페이지, 즉 익명 페이지 */
 	VM_ANON = 1,
-	/* page that realated to the file */
+	/* 파일과 관련된 페이지 */
 	VM_FILE = 2,
-	/* page that hold the page cache, for project 4 */
+	/* 페이지 캐시를 보유하는 페이지 (project 4에서 사용) */
 	VM_PAGE_CACHE = 3,
 
-	/* Bit flags to store state */
+	/* 상태를 저장하기 위한 비트 플래그 */
 
-	/* Auxillary bit flag marker for store information. You can add more
-	 * markers, until the value is fit in the int. */
+	/* 부가적인 정보를 저장하기 위한 비트 플래그 마커.
+	 * int 범위 내리면 더 많은 마커를 추가할 수 있음. */
 	VM_MARKER_0 = (1 << 3),
 	VM_MARKER_1 = (1 << 4),
 
-	/* DO NOT EXCEED THIS VALUE. */
+	/* 이 값을 초과하지 말 것. */
 	VM_MARKER_END = (1 << 31),
 };
+
 
 #include "vm/uninit.h"
 #include "vm/anon.h"
@@ -48,6 +49,7 @@ struct page {
 
 	/* Your implementation */
 	struct hash_elem hash_elem;   // [구현1-1.해시테이블세팅] 해시 테이블 요소 추가
+	bool writable;
 
 	/* 타입별 데이터는 union에 바인딩되어 있습니다.
  	 * 각 함수는 현재 어떤 union이 사용 중인지 자동으로 감지합니다. */

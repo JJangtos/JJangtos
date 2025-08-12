@@ -18,6 +18,8 @@
         "utility": "c",
         "malloc.h": "c",
         "palloc.h": "c",
-        "vaddr.h": "c"
+        "vaddr.h": "c",
+        "string.h": "c",
+        "memory_resource": "c"
     }
 }

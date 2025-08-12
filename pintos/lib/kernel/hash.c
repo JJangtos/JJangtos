@@ -191,14 +191,13 @@ hash_first (struct hash_iterator *i, struct hash *h) {
 	i->elem = list_elem_to_hash_elem (list_head (i->bucket));
 }
 
-/* Advances I to the next element in the hash table and returns
-   it.  Returns a null pointer if no elements are left.  Elements
-   are returned in arbitrary order.
+/*I를 해시 테이블에서 다음 요소로 이동시키고 그 요소를 반환합니다.
+더 이상 남아 있는 요소가 없으면 NULL 포인터를 반환합니다.
+요소들은 임의의 순서로 반환됩니다.
 
-   Modifying a hash table H during iteration, using any of the
-   functions hash_clear(), hash_destroy(), hash_insert(),
-   hash_replace(), or hash_delete(), invalidates all
-   iterators. */
+순회(iteration) 중에 해시 테이블 H를 다음 함수들(hash_clear(), hash_destroy(), hash_insert(),
+hash_replace(), hash_delete())로 수정하면, 모든 반복자(iterator)는 더 이상 유효하지 않게 됩니다.*/
+
 struct hash_elem *
 hash_next (struct hash_iterator *i) {
 	ASSERT (i != NULL);
@@ -215,9 +214,9 @@ hash_next (struct hash_iterator *i) {
 	return i->elem;
 }
 
-/* Returns the current element in the hash table iteration, or a
-   null pointer at the end of the table.  Undefined behavior
-   after calling hash_first() but before hash_next(). */
+/* 해시 테이블 순회에서 현재 요소를 반환합니다.
+   테이블의 끝에 도달하면 NULL 포인터를 반환합니다.
+   hash_first()를 호출한 직후, hash_next()를 호출하기 전에 이 함수를 사용하면 동작이 정의되지 않습니다. */
 struct hash_elem *
 hash_cur (struct hash_iterator *i) {
 	return i->elem;

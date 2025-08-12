@@ -7,6 +7,8 @@
 #include "threads/vaddr.h"
 #include "threads/palloc.h"
 #include "threads/mmu.h"
+#include "vm/uninit.h"
+#include <string.h>
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -73,12 +75,37 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
 	/* upage가 이미 사용 중인지 확인합니다. */
+	// 해당 가상 주소를 위한 페이지 엔트리가 이미 SPT에 등록되어있는지 확인
 	if (spt_find_page (spt, upage) == NULL) {
 		/* TODO: 페이지를 생성하고, VM 타입에 따라 initializer를 가져옵니다.
 		 * TODO: 그런 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성합니다.
 		 * TODO: uninit_new 호출 후 필요한 필드를 수정하세요. */
 
+		// 페이지 생성
+		struct page *page = (struct page *) calloc (1, sizeof(struct page));
+		if (page == NULL) goto err;
+
+		// VM 타입에 따라 initializer를 가져옵니다.
+		//  마커 비트 제거 하여 기본 타입만 저장한 뒤, 타입별 page_initializer 선택
+		enum vm_type base_type = VM_TYPE(type);
+		bool (*page_init)(struct page *, enum vm_type, void *);
+		page_init = NULL;
+		switch (base_type) {
+			case VM_ANON:
+				page_init = anon_initializer;
+				break;
+			case VM_FILE:
+				page_init = file_backed_initializer;
+				break;
+		}
+		
+		// 그런 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성
+		uninit_new (page, upage, init, type, aux, page_init);
+		// 메타데이터 설정
+  		page->writable = writable;
+
 		/* TODO: 생성한 페이지를 spt에 삽입합니다. */
+		return spt_insert_page(spt, page);
 	}
 err:
 	return false;
@@ -109,11 +136,8 @@ spt_find_page (struct supplemental_page_table *spt, void *va) {
 /* PAGE를 spt에 삽입합니다. 삽입 시 유효성 검사를 수행합니다. */
 bool
 spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
-	int succ = false;
 	/* TODO: 이 함수를 구현하세요. */
-	succ = hash_insert(&spt->pages, &page -> hash_elem);
-
-	return succ;
+	return hash_insert(&spt->pages, &page -> hash_elem) == NULL;
 }
 
 /* 페이지를 spt에서 제거하고 메모리를 해제합니다. */
@@ -188,10 +212,15 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
+			
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
+
 	/* TODO: 접근 오류가 유효한지 확인합니다. */
-	/* TODO: 여기에 코드를 작성하세요. */
+	if (addr == NULL || is_kernel_vaddr(addr)) return false;
+
+	// 페이지 폴트가 발생한 주소에 해당하는 페이지 구조체를 SPT에서 찾도록 spt_find_page를 사용한다.
+	page = spt_find_page(spt, addr);
 
 	return vm_do_claim_page (page);
 }
@@ -243,15 +272,66 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 }
 
 /* 보조 페이지 테이블을 src로부터 dst로 복사합니다. */
+// 부모 프로세스의 실행 컨텍스트를 자식이 상속받아야 할 때(fork()) 사용됨
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
-	
+	// src의 모든 페이지를 순회하며 dst에 동일한 엔트리를 복사한다.
+	struct hash_iterator i;
+	hash_first(&i, &src->pages);   // src는 부모 SPT
+
+	while (hash_next(&i)){
+		struct page *src_page = hash_entry(hash_cur(&i), struct page, hash_elem);
+		void *upage = src_page -> va;
+		bool writable = src_page -> writable;
+		bool success = false;
+
+		// 아직 초기화 되지 않은(uninit) 페이지인 경우
+		if (VM_TYPE(src_page->operations->type) == VM_UNINIT) {
+		// if (src_page->operations == &uninit_ops)  {
+			success = vm_alloc_page_with_initializer(
+					VM_TYPE(src_page->uninit.type), upage, writable, 
+					src_page->uninit.init, src_page->uninit.aux);
+		}
+		// 이미 메모리에 로드된 페이지 (anon/file)
+		else {
+			success = vm_alloc_page_with_initializer(page_get_type(src_page), upage, writable, NULL, NULL);
+
+			if(success) {
+				struct page *child_page = spt_find_page(dst, upage);
+
+				// 자식 페이지 할당해서 물리 프레임 확보
+				if(child_page && vm_do_claim_page(child_page) && src_page -> frame){
+					memcpy(child_page -> frame -> kva, src_page-> frame -> kva, PGSIZE);
+				}
+				else {
+					return false;
+				}
+			}
+		}
+
+		if (!success) {
+            return false; /* 실패 시 즉시 종료 */
+        }
+	}
+	return true; /* 전체 복사 성공 */
 }
 
 /* 보조 페이지 테이블이 사용하는 자원을 해제합니다. */
+// 프로세스가 종료될 때(process_exit()) 호출 됨
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: 해당 스레드가 보유한 모든 supplemental_page_table을 제거하고,
 	 * TODO: 수정된 내용을 저장소에 기록합니다. */
+	
+	// 페이지 엔트리를 모두 순회하면서 destroy(page)를 호출하여 각 페이지를 제거한다.
+	struct hash_iterator i;
+
+	// iterator 해시테이블 첫 원소 앞으로 이동
+	hash_first(&i, &spt->pages);
+
+	while(hash_next(&i)){
+		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+		destroy(p);
+	}
 }

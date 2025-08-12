@@ -196,8 +196,13 @@ syscall_handler (struct intr_frame *f) {
 void check_address(const char *addr)
 {
 	// 할당할 때만 확인하고 나머지는 page fault로 확인
-    if (addr == NULL || !is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL)
-        exit(-1);
+	// VM부터는 
+    // if (addr == NULL || !is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL)
+        // exit(-1);
+	if (spt_find_page(&thread_current()->spt, addr) == NULL){
+		exit(-1);
+	}
+	
 }
 
 int add_file(struct file *file){
