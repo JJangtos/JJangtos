@@ -16,4 +16,10 @@ struct dict_elem {
     struct file *value;  // 자식의 복사본
 };
 
+struct container{
+    struct file *file;
+    off_t offset;
+    size_t page_read_bytes;
+};
+
 #endif /* userprog/process.h */

@@ -139,10 +139,12 @@ syscall_handler (struct intr_frame *f) {
 
 	/* Project 3 */
 	case SYS_MMAP:
+		f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
 		/* code */
 		break;
 
 	case SYS_MUNMAP:
+		munmap(f->R.rdi);
 		/* code */
 		break;
 
@@ -346,9 +348,14 @@ int filesize(int fd){
 int read (int fd, void *buffer, unsigned length){
 	//check_address(buffer);
 
-	if (fd < 0 || fd >= MAX_FD || buffer == NULL || !is_user_vaddr(buffer) || !is_user_vaddr(buffer + length - 1)){
+	if (fd < 0 || fd == 1 || buffer == NULL || fd >= MAX_FD || buffer == NULL || !is_user_vaddr(buffer) || !is_user_vaddr(buffer + length - 1)){
 		return -1;
 	}
+
+	// struct page *p = spt_find_page(&thread_current()->spt, pg_round_down(buffer));
+    // if (p == NULL || !p->writable) {
+    //     exit(-1); // 또는 process_exit(-1);
+    // }
 	
 	struct thread *cur = thread_current();
 	struct file *file = cur->fdt[fd];
@@ -479,4 +486,31 @@ int dup2(int oldfd, int newfd){
     cur->fdt[newfd] = oldfile;  // 동일한 객체 공유
 	
 	return newfd;
+}
+
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset){
+    // offset이 정렬 x
+    if (offset % PGSIZE != 0){
+        return NULL;
+    }
+    if(pg_round_down(addr) != addr || is_kernel_vaddr(addr) || addr == NULL || (long long)length <=0)
+        return NULL;
+    // console input, output은 mapping x
+    if(fd == 0 || fd == 1)
+        exit(-1);
+    // overlap
+    if(spt_find_page(&thread_current()->spt, addr))
+        return NULL;
+
+    struct file *target = process_get_file(fd);
+    if(target == NULL)
+        return NULL;
+
+    void *ret = do_mmap(addr, length, writable, target, offset);
+
+    return ret;
+}
+
+void munmap(void *addr){
+    do_munmap(addr);
 }

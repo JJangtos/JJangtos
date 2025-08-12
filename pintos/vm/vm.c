@@ -222,51 +222,74 @@ vm_handle_wp (struct page *page UNUSED) {
  스택 증가로 Page Fault 예외를 처리할 수 있는지 확인한 경우, Page Fault가 발생한 주소로 vm_stack_growth를 호출합니다.
 */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
-	struct page *page = NULL;
-	/* TODO: 접근 오류가 유효한지 확인합니다. */
-	/* TODO: 여기에 코드를 작성하세요. */
-    if (is_kernel_vaddr(addr) || !not_present) { // 커널 영역이거나, 페이지 자체가 없거나
-        return false;
-    }
-    page = spt_find_page(spt, addr);
-    if (page == NULL) { // spt_find_page가 실패했을 경우
-        // user가 false이면 커널에서 발생한 폴트이므로 스택 증가 대상이 아님
-        // if (!user) {
-        //     return false;
-        // }
-        bool is_stack_growth = false; // 플래그 설정
+vm_try_handle_fault (struct intr_frame *f, void *addr,
+                     bool user, bool write, bool not_present) {
 
-        if (user) {
-            // 사용자 모드 폴트: rsp 근접성까지 엄격하게 검사
-            if ((USER_STACK - STACK_MAX_SIZE) < addr && addr < USER_STACK && addr >= f->rsp - 32) {
-                is_stack_growth = true;
-            }
-        } else { // 커널 모드 폴트 (시스템 콜 내부)
-            // 커널 모드 폴트: rsp 근접성 없이 관대하게 검사
-            if ((USER_STACK - STACK_MAX_SIZE) < addr && addr < USER_STACK) {
-                is_stack_growth = true;
-            }
-        }
-
-        if (is_stack_growth) {
-            vm_stack_growth(addr);
-            // vm_stack_growth 안에서 SPT에 페이지를 넣으므로, 다시 찾아야 함
-            page = spt_find_page(spt, addr);
-            if (page == NULL) return false; // 실패
-        } else {
-            return false; // 스택 확장 아님
-        }
-    }
-    
-
-    if (write && !page->writable) { 
+    // 1. 근본적으로 유효하지 않은 주소 접근을 가장 먼저 걸러냅니다.
+    if (addr == NULL || !is_user_vaddr(addr)) {
         return false;
     }
 
-	return vm_do_claim_page (page);
+    struct supplemental_page_table *spt = &thread_current()->spt;
+    // 페이지를 찾을 때는 항상 페이지 시작 주소로 찾는 것이 안전합니다.
+    struct page *page = spt_find_page(spt, pg_round_down(addr));
+
+    // 2. 요청한 페이지가 SPT에 존재하지 않는 경우
+    if (page == NULL) {
+        // --- 바로 이 부분이 타입 에러의 주된 원인이었습니다 ---
+        // 모든 주소 비교/연산은 포인터를 정수 타입(uintptr_t)으로 캐스팅하여 수행합니다.
+
+        uintptr_t fault_addr = (uintptr_t)addr;
+        uintptr_t user_rsp = (uintptr_t)f->rsp;
+        // USER_STACK도 캐스팅하여 연산합니다.
+        uintptr_t user_stack_bottom = (uintptr_t)USER_STACK - STACK_MAX_SIZE;
+
+        // 조건 1: 폴트 주소가 스택 영역 안에 있는가?
+        bool is_valid_stack_area = (fault_addr >= user_stack_bottom) && (fault_addr < (uintptr_t)USER_STACK);
+        
+        // 조건 2: 폴트 주소가 현재 스택 포인터와 가까운가?
+        // PUSHA 명령어는 rsp를 32바이트까지 밀 수 있습니다.
+        bool is_near_rsp = (fault_addr >= user_rsp - 32);
+
+		// --- 아래 디버깅 코드를 추가 ---
+		printf("\n--- Page Fault Debug Info ---\n");
+		printf("Faulting Address (addr) : %p\n", addr);
+		printf("User Stack Pointer (rsp): %p\n", (void *)user_rsp);
+		printf("Is in stack area?       : %s\n", is_valid_stack_area ? "YES" : "NO");
+		printf("Is near rsp (-32)?      : %s\n", is_near_rsp ? "YES" : "NO");
+		printf("---------------------------\n");
+
+        if (is_valid_stack_area && is_near_rsp) {
+			void *stack_page_to_alloc = pg_round_down(addr);
+
+			// --- 여기가 최종 수정 포인트 ---
+			// if 문으로 감싸지 말고, 그냥 함수를 호출합니다.
+			vm_stack_growth(stack_page_to_alloc);
+
+			// vm_stack_growth가 성공적으로 페이지를 할당했다고 가정하고,
+			// 바로 SPT에서 페이지를 다시 찾아봅니다.
+			page = spt_find_page(spt, stack_page_to_alloc);
+			if (page == NULL) {
+				// vm_stack_growth 내부의 vm_alloc_page가 실패했다면 
+				// page를 찾지 못할 것입니다. 여기서 실패 처리합니다.
+				return false;
+			}
+			// 페이지를 찾았으므로, 아래의 권한 확인 및 로드 로직으로 자연스럽게 넘어갑니다.
+
+		} else {
+			// 스택 확장 대상이 아님
+			return false;
+		}
+    }
+
+    // 3. 페이지에 쓰기 권한이 있는지 확인합니다.
+    // (이 검사는 페이지를 찾은 후에 해야 합니다)
+    if (write && !page->writable) {
+        return false;
+    }
+
+    // 4. 모든 검사를 통과했으므로, 페이지를 물리 프레임에 로드(claim)합니다.
+    return vm_do_claim_page(page);
 }
 
 /* 페이지를 해제합니다.
