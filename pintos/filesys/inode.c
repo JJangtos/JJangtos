@@ -6,6 +6,7 @@
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
+#include "threads/synch.h"
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
@@ -52,11 +53,13 @@ byte_to_sector (const struct inode *inode, off_t pos) {
 /* List of open inodes, so that opening a single inode twice
  * returns the same `struct inode'. */
 static struct list open_inodes;
+static struct lock open_inodes_lock;
 
 /* Initializes the inode module. */
 void
 inode_init (void) {
 	list_init (&open_inodes);
+	lock_init (&open_inodes_lock);
 }
 
 /* Initializes an inode with LENGTH bytes of data and
@@ -99,34 +102,74 @@ inode_create (disk_sector_t sector, off_t length) {
 /* Reads an inode from SECTOR
  * and returns a `struct inode' that contains it.
  * Returns a null pointer if memory allocation fails. */
+/* In filesys/inode.c */
 struct inode *
 inode_open (disk_sector_t sector) {
-	struct list_elem *e;
-	struct inode *inode;
+    struct list_elem *e;
+    struct inode *inode;
 
-	/* Check whether this inode is already open. */
-	for (e = list_begin (&open_inodes); e != list_end (&open_inodes);
-			e = list_next (e)) {
-		inode = list_entry (e, struct inode, elem);
-		if (inode->sector == sector) {
-			inode_reopen (inode);
-			return inode; 
-		}
-	}
+    /* 1. 먼저 리스트에 있는지 빠르게 확인합니다. (첫 번째 확인) */
+    lock_acquire(&open_inodes_lock);
+    for (e = list_begin (&open_inodes); e != list_end (&open_inodes);
+         e = list_next (e)) {
+        inode = list_entry (e, struct inode, elem);
+        if (inode->sector == sector) {
+            inode_reopen (inode);
+            lock_release(&open_inodes_lock);
+            return inode;
+        }
+    }
+    /* 여기까지 왔다면, 현재 리스트에는 inode가 없습니다. */
+    lock_release(&open_inodes_lock);
 
-	/* Allocate memory. */
-	inode = malloc (sizeof *inode);
-	if (inode == NULL)
-		return NULL;
+    /* * 2. 락을 해제한 상태에서, 시간이 오래 걸리는 작업을 수행합니다.
+     * 이제부터 만드는 inode는 이 함수의 지역 변수이므로 다른 스레드가 접근할 수 없습니다.
+     */
+    inode = malloc (sizeof *inode);
+    if (inode == NULL) {
+        return NULL; // 메모리 할당 실패
+    }
+    
+    // 디스크에서 데이터를 읽어와 inode를 '완전히' 초기화합니다.
+    disk_read(filesys_disk, sector, &inode->data);
+    inode->sector = sector;
+    inode->open_cnt = 1;
+    inode->deny_write_cnt = 0;
+    inode->removed = false;
 
-	/* Initialize. */
-	list_push_front (&open_inodes, &inode->elem);
-	inode->sector = sector;
-	inode->open_cnt = 1;
-	inode->deny_write_cnt = 0;
-	inode->removed = false;
-	disk_read (filesys_disk, inode->sector, &inode->data);
-	return inode;
+
+    /*
+     * 3. 이제 완전히 초기화된 inode를 공유 리스트에 추가할 시간입니다.
+     * 하지만 그 사이에 다른 스레드가 먼저 inode를 추가했을 수 있으므로,
+     * 다시 한번 확인해야 합니다. (두 번째 확인)
+     */
+    lock_acquire(&open_inodes_lock);
+    
+    // 다른 스레드가 먼저 추가했는지 다시 스캔합니다.
+    struct inode *existing_inode = NULL;
+    for (e = list_begin (&open_inodes); e != list_end (&open_inodes);
+         e = list_next (e)) {
+        existing_inode = list_entry (e, struct inode, elem);
+        if (existing_inode->sector == sector) {
+            // 다른 스레드가 먼저 추가했네요!
+            break;
+        }
+        existing_inode = NULL;
+    }
+
+    if (existing_inode != NULL) {
+        // 다른 스레드가 만든 inode가 있으니, 내가 만든 것은 버리고 그것을 사용합니다.
+        free(inode); // 내가 만든 것은 메모리 해제
+        inode_reopen(existing_inode);
+        inode = existing_inode;
+    } else {
+        // 아무도 추가하지 않았으니, 내가 만든 완전한 inode를 리스트에 추가합니다.
+        list_push_front(&open_inodes, &inode->elem);
+    }
+    
+    lock_release(&open_inodes_lock);
+
+    return inode;
 }
 
 /* Reopens and returns INODE. */
