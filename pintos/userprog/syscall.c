@@ -20,7 +20,7 @@ void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
 // 시스템 콜 선언
-void check_address(const char *addr);
+struct page * check_address(void *addr);
 pid_t sys_fork (const char *thread_name, struct intr_frame *if_);
 int dup2(int oldfd, int newfd);
 int add_file(struct file *file);
@@ -64,6 +64,9 @@ struct file *process_get_file (int fd){
 void
 syscall_handler (struct intr_frame *f) {
 	// TODO: Your implementation goes here.
+	#ifdef VM
+        thread_current()->rsp_stack = f->rsp; 
+    #endif
 	switch (f->R.rax)
 	{
 	// 시스템 콜 번호는 rax 레지스터에 저장된다.
@@ -114,11 +117,13 @@ syscall_handler (struct intr_frame *f) {
 
 	case SYS_READ:
 		/* code */
+		check_valid_buffer(f->R.rsi, f->R.rdx, f->rsp, 1);
 		f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 
 	case SYS_WRITE:
 		/* code */
+		check_valid_buffer(f->R.rsi, f->R.rdx, f->rsp, 0);
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 
@@ -139,12 +144,12 @@ syscall_handler (struct intr_frame *f) {
 
 	/* Project 3 */
 	case SYS_MMAP:
-		/* code */
-		break;
+        f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+        break;
 
-	case SYS_MUNMAP:
-		/* code */
-		break;
+    case SYS_MUNMAP:
+        munmap(f->R.rdi);
+        break;
 
 	/* Project 4 */
 	case SYS_CHDIR:
@@ -191,11 +196,16 @@ syscall_handler (struct intr_frame *f) {
 	}
 }
 
-void check_address(const char *addr)
+struct page * check_address(void *addr)
 {
-	// 할당할 때만 확인하고 나머지는 page fault로 확인
-    if (addr == NULL || !is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL)
-        exit(-1);
+	if (is_kernel_vaddr(addr))
+		exit(-1);
+	if (spt_find_page(&thread_current()->spt, addr) == NULL)
+		exit(-1);
+	if (addr == NULL)
+		exit(-1);
+
+	return spt_find_page(&thread_current()->spt, addr);
 }
 
 int add_file(struct file *file){
@@ -336,6 +346,16 @@ int filesize(int fd){
 	struct thread *cur = thread_current();
 	return file_length(cur->fdt[fd]);
 }
+/* Project 3 */
+void check_valid_buffer(void* buffer, unsigned size, void* rsp, bool to_write){
+    for(int i=0; i<size; i++){
+        struct page* page = check_address(buffer + i);
+        if(page == NULL)
+            exit(-1);
+        if(to_write == true && page->writable == false)
+            exit(-1);
+    }
+}
 
 int read (int fd, void *buffer, unsigned length){
 	check_address(buffer);
@@ -469,8 +489,34 @@ int dup2(int oldfd, int newfd){
 	if (cur->fdt[newfd] != NULL)
 		close(newfd);
 	
-	// dup2는 얕은 복사다 ㅋ 알아버렸다
-    cur->fdt[newfd] = oldfile;  // 동일한 객체 공유
+    cur->fdt[newfd] = oldfile;
 	
 	return newfd;
+}
+
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset){
+    // offset이 정렬 x
+    if (offset % PGSIZE != 0){
+        return NULL;
+    }
+    if(pg_round_down(addr) != addr || is_kernel_vaddr(addr) || addr == NULL || (long long)length <=0)
+        return NULL;
+    // console input, output은 mapping x
+    if(fd == 0 || fd == 1)
+        exit(-1);
+    // overlap
+    if(spt_find_page(&thread_current()->spt, addr))
+        return NULL;
+
+    struct file *target = process_get_file(fd);
+    if(target == NULL)
+        return NULL;
+
+    void *ret = do_mmap(addr, length, writable, target, offset);
+
+    return ret;
+}
+
+void munmap(void *addr){
+    do_munmap(addr);
 }
