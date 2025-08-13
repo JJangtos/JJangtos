@@ -20,6 +20,7 @@
         "palloc.h": "c",
         "vaddr.h": "c",
         "string.h": "c",
-        "memory_resource": "c"
+        "memory_resource": "c",
+        "process.h": "c"
     }
 }

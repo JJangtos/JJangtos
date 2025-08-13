@@ -731,14 +731,14 @@ install_page (void *upage, void *kpage, bool writable) {
  * upper block. */
 
  
-// aux 구조체 생성
-struct aux_info {
-	struct file *file;
-	off_t ofs;
-	uint32_t read_bytes;
-	uint32_t zero_bytes;
-	bool writable;
-};
+// // aux 구조체 생성
+// struct aux_info {
+// 	struct file *file;
+// 	off_t ofs;
+// 	uint32_t read_bytes;
+// 	uint32_t zero_bytes;
+// 	bool writable;
+// };
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {

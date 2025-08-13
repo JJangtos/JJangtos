@@ -16,4 +16,13 @@ struct dict_elem {
     struct file *value;  // 자식의 복사본
 };
 
+// aux 구조체 생성
+struct aux_info {
+	struct file *file;
+	off_t ofs;
+	uint32_t read_bytes;
+	uint32_t zero_bytes;
+	bool writable;
+};
+
 #endif /* userprog/process.h */

@@ -9,6 +9,7 @@
 #include "threads/mmu.h"
 #include "vm/uninit.h"
 #include <string.h>
+#include "userprog/process.h"
 
 /* 가상 메모리 서브시스템을 초기화합니다.
  * 각 서브시스템의 초기화 코드를 호출합니다. */
@@ -288,10 +289,25 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 
 		// 아직 초기화 되지 않은(uninit) 페이지인 경우
 		if (VM_TYPE(src_page->operations->type) == VM_UNINIT) {
+
+			struct aux_info *src_aux = src_page->uninit.aux;
+  			struct aux_info *dst_aux = malloc(sizeof *dst_aux);
+
+   			 *dst_aux = *src_aux; // 구조체 복사
+
+			 if (src_aux->file) {
+				dst_aux->file = file_reopen(src_aux->file); // 파일 핸들 새로 열기
+			}
+
+			 success = vm_alloc_page_with_initializer(
+				VM_TYPE(src_page->uninit.type), 
+				upage, writable, 
+				src_page->uninit.init, dst_aux);
+			 
 		// if (src_page->operations == &uninit_ops)  {
-			success = vm_alloc_page_with_initializer(
-					VM_TYPE(src_page->uninit.type), upage, writable, 
-					src_page->uninit.init, src_page->uninit.aux);
+			// success = vm_alloc_page_with_initializer(
+			// 		VM_TYPE(src_page->uninit.type), upage, writable, 
+			// 		src_page->uninit.init, src_page->uninit.aux);
 		}
 		// 이미 메모리에 로드된 페이지 (anon/file)
 		else {
