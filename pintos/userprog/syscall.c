@@ -64,6 +64,7 @@ struct file *process_get_file (int fd){
 void
 syscall_handler (struct intr_frame *f) {
 	// TODO: Your implementation goes here.
+	thread_current()->user_rsp = f->rsp;
 	switch (f->R.rax)
 	{
 	// 시스템 콜 번호는 rax 레지스터에 저장된다.
@@ -193,6 +194,52 @@ syscall_handler (struct intr_frame *f) {
 	}
 }
 
+static struct page *
+validate_address_and_get_page(void *vaddr) {
+    // 1. 유저 주소 영역에 속하는지 기본적인 검사를 수행합니다.
+    if (vaddr == NULL || !is_user_vaddr(vaddr)) {
+        exit(-1);
+    }
+
+    // 2. Supplemental Page Table(SPT)에서 페이지 정보를 찾습니다.
+    struct page *page = spt_find_page(&thread_current()->spt, pg_round_down(vaddr));
+    
+    // 3. SPT에 페이지 정보가 없는 경우
+    if (page == NULL) {
+        // 스택 확장으로 처리될 수 있는 주소인지 확인합니다.
+        // 현재 스택 포인터(user_rsp)보다 위에 있고, 스택 영역 하한선보다 위에 있어야 합니다.
+        void *rsp = thread_current()->user_rsp;
+        if (vaddr >= rsp && vaddr < USER_STACK) {
+            // 유효한 스택 접근으로 간주합니다. 실제 페이지 할당은 page_fault 핸들러가 담당합니다.
+            // 따라서 여기서는 '유효하지만 아직 매핑된 페이지는 없음'을 의미하는 NULL을 반환합니다.
+            return NULL;
+        } else {
+            // 스택 확장 영역도 아니라면, 이는 잘못된 주소 접근입니다.
+            exit(-1);
+        }
+    }
+    
+    // 4. SPT에서 페이지를 찾은 경우, 해당 페이지 정보를 반환합니다.
+    return page;
+}
+
+
+/* buffer의 시작부터 끝까지 전체 영역의 유효성을 검사하는 함수. */
+static void
+validate_buffer(const void *buffer, unsigned size, bool writable) {
+    // 버퍼의 시작 주소부터 끝 주소까지 페이지 단위로 순회합니다.
+    for (char *vaddr = (char *)pg_round_down(buffer); vaddr < (char *)buffer + size; vaddr += PGSIZE) {
+        // 각 페이지의 유효성을 검사합니다.
+        struct page *page = validate_address_and_get_page(vaddr);
+
+        // 페이지가 SPT에 존재하고(즉, 스택 자동 확장이 아님),
+        // 버퍼에 쓰기가 가능해야 하는데(writable == true), 페이지가 쓰기 금지 상태라면 프로세스를 종료합니다.
+        if (page != NULL && writable && !page->writable) {
+            exit(-1);
+        }
+    }
+}
+
 void check_address(const char *addr)
 {
 	// 할당할 때만 확인하고 나머지는 page fault로 확인
@@ -247,49 +294,33 @@ tid_t sys_fork (const char *thread_name, struct intr_frame *if_){
 }
 
 int write (int fd, const void *buffer, unsigned length) {
-	//check_address(buffer);
-	
-	// write에서 STDIN을 할 필요 없음
-	if (fd <= 0 || buffer == NULL || fd >= MAX_FD || !is_user_vaddr(buffer) || !is_user_vaddr(buffer + length - 1))
-		return -1;
+    // 1. 버퍼 유효성 검사: write는 버퍼의 데이터를 읽기만 하므로, 쓰기 불가능(false)해도 괜찮습니다.
+    validate_buffer(buffer, length, false);
 
-	struct thread *cur = thread_current();
-	struct file *file = cur->fdt[fd];
-	unsigned written = 0;
+    // 2. 파일 디스크립터(fd) 유효성 검사
+    if (fd <= 0 || fd >= MAX_FD) {
+        return -1;
+    }
 
-	// 파일이 없을 때, 표준 입력일 때
-	if (file == NULL || file == STDIN_){
-		return -1;
-	}
-	else if (file == STDOUT_){
-		if (cur->stdout_count == 0){
-			NOT_REACHED();
-			cur->fdt[fd] = NULL;
-			written = -1;
-		}
-		else{
-			if (length <= 512){
-				putbuf(buffer, length);
-				return length;
-			}
-			else{
-				const char *buf_ptr = buffer;
+    unsigned written = 0;
 
-				while (written < length){
-					unsigned remain = length - written;
-					unsigned write_size = (remain > 512) ? 512 : remain;
-					putbuf(buf_ptr + written, write_size); 
-					written += write_size;
-				}
-			}
-		}
-	}
-	else{
-		lock_acquire(&filesys_lock);
-		written = file_write(file, buffer, length);
-		lock_release(&filesys_lock);
-	}
-	return written;
+    // 3. 실제 쓰기 작업 수행
+    if (fd == 1) {
+        // 표준 출력 처리
+        putbuf(buffer, length);
+        written = length;
+    } else {
+        // 파일 쓰기 처리
+        struct file *file = process_get_file(fd);
+        if (file == NULL) {
+            return -1;
+        }
+        lock_acquire(&filesys_lock);
+        written = file_write(file, buffer, length);
+        lock_release(&filesys_lock);
+    }
+    
+    return written;
 }
 
 bool create(const char *file, unsigned initial_size){
@@ -345,54 +376,45 @@ int filesize(int fd){
 	return file_length(cur->fdt[fd]);
 }
 
+/* read 시스템 콜 구현 */
 int read (int fd, void *buffer, unsigned length){
-	//check_address(buffer);
+    // 1. 버퍼 유효성 검사: read는 버퍼에 데이터를 써야 하므로, 쓰기 가능(true)한지 확인합니다.
+    validate_buffer(buffer, length, true);
 
-	if (fd < 0 || fd == 1 || buffer == NULL || fd >= MAX_FD || buffer == NULL || !is_user_vaddr(buffer) || !is_user_vaddr(buffer + length - 1)){
-		return -1;
-	}
+    // 2. 파일 디스크립터(fd) 유효성 검사
+    if (fd < 0 || fd == 1 || fd >= MAX_FD){
+        return -1;
+    }
+    
+    struct file *file = process_get_file(fd);
+    if (file == NULL) {
+        return -1;
+    }
 
-	// struct page *p = spt_find_page(&thread_current()->spt, pg_round_down(buffer));
-    // if (p == NULL || !p->writable) {
-    //     exit(-1); // 또는 process_exit(-1);
-    // }
-	
-	struct thread *cur = thread_current();
-	struct file *file = cur->fdt[fd];
-	unsigned bytes_read = 0;
+    unsigned bytes_read = 0;
 
-	// 파일이 없을 때, 출력일 때
-	if (file == NULL || file == STDOUT_){
-		return -1;
-	}
+    // 3. 실제 읽기 작업 수행
+    if (fd == 0) {
+        // 표준 입력 처리
+        lock_acquire(&filesys_lock);
+        uint8_t *buf = (uint8_t *)buffer;
+        for (unsigned i = 0; i < length; i++) {
+            char key = input_getc();
+            buf[i] = key;
+            if (key == '\0') {
+                break;
+            }
+        }
+        bytes_read = length; // input_getc() 동작에 맞춰 실제 읽은 바이트 수로 변경 필요
+        lock_release(&filesys_lock);
+    } else {
+        // 파일 읽기 처리
+        lock_acquire(&filesys_lock);
+        bytes_read = file_read(file, buffer, length);
+        lock_release(&filesys_lock);
+    }
 
-	if (file == STDIN_) {
-		if (cur->stdin_count == 0){
-			NOT_REACHED();
-			cur->fdt[fd] = NULL;
-			bytes_read = -1;
-		}
-		else{
-			// 표준 입력에서 키보드 입력 읽기
-			uint8_t *buf = (uint8_t *)buffer;
-
-			for (int i = 0; i < length; i++) {
-				char key = input_getc();  // 키 입력까지 대기
-				buf[i] = key;
-				bytes_read++;
-
-				if (key == '\0') break;   // 널 문자로 종료
-				}
-			return bytes_read;
-		}
-	}
-	else{
-		lock_acquire(&filesys_lock);
-		bytes_read = file_read(file, buffer, length);
-		lock_release(&filesys_lock);
-	}
-
-	return bytes_read;
+    return bytes_read;
 }
 
 void seek(int fd, unsigned position){

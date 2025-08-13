@@ -7,6 +7,10 @@
         "stddef.h": "c",
         "uninit.h": "c",
         "string.h": "c",
-        "process.h": "c"
+        "process.h": "c",
+        "iosfwd": "c",
+        "limits": "c",
+        "streambuf": "c",
+        "*.inc": "c"
     }
 }
