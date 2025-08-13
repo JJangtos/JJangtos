@@ -319,19 +319,35 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 
 /* 보조 페이지 테이블이 사용하는 자원을 해제합니다. */
 // 프로세스가 종료될 때(process_exit()) 호출 됨
-void
-supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
-	/* TODO: 해당 스레드가 보유한 모든 supplemental_page_table을 제거하고,
-	 * TODO: 수정된 내용을 저장소에 기록합니다. */
+// void
+// supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
+// 	/* TODO: 해당 스레드가 보유한 모든 supplemental_page_table을 제거하고,
+// 	 * TODO: 수정된 내용을 저장소에 기록합니다. */
 	
-	// 페이지 엔트리를 모두 순회하면서 destroy(page)를 호출하여 각 페이지를 제거한다.
-	struct hash_iterator i;
+// 	// 페이지 엔트리를 모두 순회하면서 destroy(page)를 호출하여 각 페이지를 제거한다.
+// 	struct hash_iterator i;
 
-	// iterator 해시테이블 첫 원소 앞으로 이동
-	hash_first(&i, &spt->pages);
+// 	// iterator 해시테이블 첫 원소 앞으로 이동
+// 	hash_first(&i, &spt->pages);
 
-	while(hash_next(&i)){
-		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
-		destroy(p);
-	}
+// 	while(hash_next(&i)){
+// 		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+// 		destroy(p);
+// 	}
+// }
+
+// 콜백: 해시의 각 엔트리를 파괴
+static void page_hash_destructor(struct hash_elem *e, void *aux UNUSED) {
+    struct page *p = hash_entry(e, struct page, hash_elem);
+	vm_dealloc_page(p);  // 페이지가 들고 있는 frame/swap/파일 매핑 정리 및 필요 시 write-back
+}
+
+void supplemental_page_table_kill(struct supplemental_page_table *spt) {
+    if (spt == NULL) return;
+
+    // spt->pages의 모든 엔트리에 대해 page_hash_destructor를 호출한 뒤,
+    // 해시의 버킷 메모리까지 해제.
+    hash_destroy(&spt->pages, page_hash_destructor);
+
+    // 주의: spt 자체가 동적 할당이라면 여기서 free(spt) 는 호출자(or 상위 레벨)에서.
 }
